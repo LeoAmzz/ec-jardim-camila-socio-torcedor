@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import { 
   Home, Search, Bell, Scale, Trophy, Target, BarChart2, Settings, ShieldCheck 
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CURRENT_USER } from "@/lib/mock-data";
 import { Avatar } from "@/components/shared/Avatar";
 import { ProgressBar } from "@/components/shared/ProgressBar";
 import { Badge } from "@/components/shared/Badge";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/home", icon: Home },
@@ -24,6 +26,29 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading, signOut } = useAuth();
+
+  const metadata = user?.user_metadata;
+  const emailName = user?.email?.split("@")[0];
+  const displayName =
+    typeof metadata?.full_name === "string" && metadata.full_name.trim()
+      ? metadata.full_name
+      : emailName || CURRENT_USER.name;
+  const username =
+    typeof metadata?.username === "string" && metadata.username.trim()
+      ? metadata.username.replace(/^@+/, "")
+      : emailName || "usuario";
+  const displayUsername = loading ? "Carregando..." : `@${username}`;
+  const avatarUrl =
+    typeof metadata?.avatar_url === "string" && metadata.avatar_url.trim()
+      ? metadata.avatar_url
+      : user ? undefined : CURRENT_USER.avatar;
+
+  async function handleLogout() {
+    await signOut();
+    router.push("/login");
+  }
 
   return (
     <aside className="fixed left-0 top-0 h-full w-[220px] bg-sidebar border-r border-sidebar-border hidden md:flex flex-col z-40">
@@ -88,14 +113,18 @@ export function Sidebar() {
       {/* Rodapé */}
       <div className="p-4 border-t border-sidebar-border mt-auto">
         <div className="flex items-center gap-3 mb-3">
-          <Avatar src={CURRENT_USER.avatar} name={CURRENT_USER.name} className="w-10 h-10" />
+          <Avatar src={avatarUrl} name={loading ? CURRENT_USER.name : displayName} className="w-10 h-10" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground truncate">{CURRENT_USER.username}</p>
+            <p className="text-sm font-bold text-foreground truncate">{displayUsername}</p>
             <Badge variant="blue" className="text-[10px] py-0">{CURRENT_USER.plan}</Badge>
           </div>
         </div>
-        <button className="w-full bg-accent hover:bg-accent-dark text-bg-dark font-bold text-sm py-2 px-4 rounded-lg transition-colors">
-          Fala, Camila!
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="w-full bg-accent hover:bg-accent-dark text-bg-dark font-bold text-sm py-2 px-4 rounded-lg transition-colors"
+        >
+          Sair
         </button>
       </div>
     </aside>
