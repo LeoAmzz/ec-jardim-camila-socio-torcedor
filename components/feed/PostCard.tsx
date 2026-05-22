@@ -29,6 +29,10 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const [areCommentsLoading, setAreCommentsLoading] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [commentEditDraft, setCommentEditDraft] = useState("");
+  const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const isRealPost = "visibility" in post;
   const canManagePost = isRealPost && user?.id === post.author_id;
@@ -276,6 +280,98 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     await loadComments();
   }
 
+  function handleStartEditComment(comment: PostCommentWithAuthor) {
+    setEditingCommentId(comment.id);
+    setCommentEditDraft(comment.content);
+    setMessage(null);
+  }
+
+  function handleCancelEditComment() {
+    setEditingCommentId(null);
+    setCommentEditDraft("");
+    setMessage(null);
+  }
+
+  async function handleSaveComment(comment: PostCommentWithAuthor) {
+    const nextComment = commentEditDraft.trim();
+
+    if (!user || savingCommentId) {
+      return;
+    }
+
+    if (!nextComment) {
+      setMessage("O comentário não pode ficar vazio.");
+      return;
+    }
+
+    setSavingCommentId(comment.id);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("post_comments")
+      .update({
+        content: nextComment,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", comment.id)
+      .eq("author_id", user.id);
+
+    setSavingCommentId(null);
+
+    if (error) {
+      setMessage("Não foi possível salvar o comentário. Tente novamente.");
+      return;
+    }
+
+    setCommentsList((currentComments) =>
+      currentComments.map((currentComment) =>
+        currentComment.id === comment.id
+          ? {
+              ...currentComment,
+              content: nextComment,
+              updated_at: new Date().toISOString(),
+            }
+          : currentComment
+      )
+    );
+    handleCancelEditComment();
+  }
+
+  async function handleDeleteComment(comment: PostCommentWithAuthor) {
+    if (!user || deletingCommentId) {
+      return;
+    }
+
+    const confirmed = window.confirm("Excluir este comentário?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingCommentId(comment.id);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("post_comments")
+      .delete()
+      .eq("id", comment.id)
+      .eq("author_id", user.id);
+
+    setDeletingCommentId(null);
+
+    if (error) {
+      setMessage("Não foi possível excluir o comentário. Tente novamente.");
+      return;
+    }
+
+    setCommentsList((currentComments) => currentComments.filter((currentComment) => currentComment.id !== comment.id));
+    setCommentsCount((currentCount) => Math.max(0, currentCount - 1));
+
+    if (editingCommentId === comment.id) {
+      handleCancelEditComment();
+    }
+  }
+
   if (isExclusive) {
     return (
       <div className="bg-card rounded-lg border border-border p-6 text-center relative overflow-hidden">
@@ -450,13 +546,66 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
                   comment.author?.username ||
                   comment.author?.email?.split("@")[0] ||
                   "Torcedor Camila";
+                const canManageComment = user?.id === comment.author_id;
+                const isEditingComment = editingCommentId === comment.id;
+                const isSavingComment = savingCommentId === comment.id;
+                const isDeletingComment = deletingCommentId === comment.id;
 
                 return (
                   <div key={comment.id} className="flex gap-3">
                     <Avatar src={comment.author?.avatar_url || undefined} name={commentAuthorName} className="h-8 w-8 flex-shrink-0" />
                     <div className="min-w-0 flex-1 rounded-lg bg-sidebar px-3 py-2">
-                      <p className="text-xs font-bold text-foreground">{commentAuthorName}</p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{comment.content}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-xs font-bold text-foreground">{commentAuthorName}</p>
+                        {canManageComment && !isEditingComment && (
+                          <div className="flex items-center gap-2 text-[11px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditComment(comment)}
+                              className="text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(comment)}
+                              disabled={isDeletingComment}
+                              className="text-danger transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {isDeletingComment ? "Excluindo..." : "Excluir"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {isEditingComment ? (
+                        <div className="mt-2 space-y-2">
+                          <textarea
+                            value={commentEditDraft}
+                            onChange={(event) => setCommentEditDraft(event.target.value)}
+                            className="w-full min-h-[72px] resize-none rounded-lg border border-border bg-background p-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveComment(comment)}
+                              disabled={isSavingComment}
+                              className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {isSavingComment ? "Salvando..." : "Salvar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditComment}
+                              disabled={isSavingComment}
+                              className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-bold text-foreground transition-colors hover:bg-card disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{comment.content}</p>
+                      )}
                     </div>
                   </div>
                 );
