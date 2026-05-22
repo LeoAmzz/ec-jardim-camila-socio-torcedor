@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CreatePost } from "@/components/feed/CreatePost";
 import { PostCard } from "@/components/feed/PostCard";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
 import type { PostWithAuthor } from "@/lib/types/post";
 import { Lock } from "lucide-react";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 type Tab = "ultimas" | "alta" | "exclusivo";
 
 export default function HomePage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("ultimas");
   const [posts, setPosts] = useState<PostWithAuthor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,12 +43,11 @@ export default function HomePage() {
         )
       `)
       .order("created_at", { ascending: false })
-      .returns<PostWithAuthor[]>();
-
-    setIsLoading(false);
+      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me">[]>();
 
     if (error) {
       setPosts([]);
+      setIsLoading(false);
       setErrorMessage(
         error.code === "42P01"
           ? "A tabela posts ainda não foi criada no Supabase. Aplique a migration de posts para começar."
@@ -55,12 +56,46 @@ export default function HomePage() {
       return;
     }
 
-    setPosts(data || []);
+    const loadedPosts = data || [];
+    const postIds = loadedPosts.map((post) => post.id);
+
+    if (postIds.length === 0) {
+      setPosts([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const { data: likesData, error: likesError } = await supabase
+      .from("post_likes")
+      .select("post_id, user_id")
+      .in("post_id", postIds);
+
+    const likesByPost = new Map<string, number>();
+    const likedPostIds = new Set<string>();
+
+    if (!likesError) {
+      likesData?.forEach((like) => {
+        likesByPost.set(like.post_id, (likesByPost.get(like.post_id) || 0) + 1);
+
+        if (user?.id && like.user_id === user.id) {
+          likedPostIds.add(like.post_id);
+        }
+      });
+    }
+
+    setPosts(
+      loadedPosts.map((post) => ({
+        ...post,
+        likes_count: likesByPost.get(post.id) || 0,
+        liked_by_me: likedPostIds.has(post.id),
+      }))
+    );
+    setIsLoading(false);
   }
 
   useEffect(() => {
     void loadPosts();
-  }, []);
+  }, [user?.id]);
 
   return (
     <div className="space-y-6">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Post } from "@/lib/mock-data";
 import type { PostWithAuthor } from "@/lib/types/post";
 import { Avatar } from "@/components/shared/Avatar";
@@ -23,6 +23,7 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const [draftContent, setDraftContent] = useState(post.content);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isLikeLoading, setIsLikeLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const isRealPost = "visibility" in post;
   const canManagePost = isRealPost && user?.id === post.author_id;
@@ -37,9 +38,16 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const content = post.content;
   const imageUrl = isRealPost ? post.image_url || undefined : post.imageUrl;
   const createdAt = isRealPost ? post.created_at : post.createdAt;
-  const likes = isRealPost ? 0 : post.likes;
+  const initialLikes = isRealPost ? post.likes_count : post.likes;
   const comments = isRealPost ? 0 : post.comments;
-  const isLikedByMe = isRealPost ? false : post.isLikedByMe;
+  const initialLikedByMe = isRealPost ? post.liked_by_me : post.isLikedByMe;
+  const [likes, setLikes] = useState(initialLikes);
+  const [isLikedByMe, setIsLikedByMe] = useState(initialLikedByMe);
+
+  useEffect(() => {
+    setLikes(initialLikes);
+    setIsLikedByMe(initialLikedByMe);
+  }, [initialLikedByMe, initialLikes, post.id]);
 
   async function handleSaveEdit() {
     const nextContent = draftContent.trim();
@@ -112,6 +120,53 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     setDraftContent(content);
     setIsEditing(false);
     setMessage(null);
+  }
+
+  async function handleToggleLike() {
+    if (!isRealPost || isLikeLoading) {
+      return;
+    }
+
+    if (!user) {
+      setMessage("Faça login para curtir posts.");
+      return;
+    }
+
+    setIsLikeLoading(true);
+    setMessage(null);
+
+    const { error } = isLikedByMe
+      ? await supabase
+          .from("post_likes")
+          .delete()
+          .eq("post_id", post.id)
+          .eq("user_id", user.id)
+      : await supabase
+          .from("post_likes")
+          .insert({
+            post_id: post.id,
+            user_id: user.id,
+          });
+
+    setIsLikeLoading(false);
+
+    if (error) {
+      setMessage(
+        error.code === "42P01"
+          ? "A tabela de curtidas ainda não foi criada no Supabase."
+          : "Não foi possível atualizar a curtida. Tente novamente."
+      );
+      return;
+    }
+
+    setIsLikedByMe((current) => !current);
+    setLikes((current) => {
+      if (isLikedByMe) {
+        return Math.max(0, current - 1);
+      }
+
+      return current + 1;
+    });
   }
 
   if (isExclusive) {
@@ -246,7 +301,15 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
 
       <div className="px-4 py-3 border-t border-border flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button className={cn("flex items-center gap-1.5 text-xs font-semibold transition-colors", isLikedByMe ? "text-primary-light" : "text-muted-foreground hover:text-foreground")}>
+          <button
+            type="button"
+            onClick={handleToggleLike}
+            disabled={isLikeLoading}
+            className={cn(
+              "flex items-center gap-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70",
+              isLikedByMe ? "text-primary-light" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
             <ThumbsUp size={16} className={cn(isLikedByMe && "fill-current")} />
             <span>{likes}</span>
           </button>

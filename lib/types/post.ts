@@ -14,4 +14,13 @@ export interface Post {
 
 export interface PostWithAuthor extends Post {
   author: Pick<Profile, "id" | "full_name" | "username" | "avatar_url" | "plan_type" | "email"> | null;
+  likes_count: number;
+  liked_by_me: boolean;
+}
+
+export interface PostLike {
+  id: string;
+  post_id: string;
+  user_id: string;
+  created_at: string;
 }
