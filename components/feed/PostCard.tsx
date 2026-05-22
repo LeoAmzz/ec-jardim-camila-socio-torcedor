@@ -1,4 +1,5 @@
 import { Post } from "@/lib/mock-data";
+import type { PostWithAuthor } from "@/lib/types/post";
 import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
 import { ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
@@ -6,11 +7,27 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 interface PostCardProps {
-  post: Post;
+  post: Post | PostWithAuthor;
 }
 
 export function PostCard({ post }: PostCardProps) {
-  if (post.isExclusive) {
+  const isRealPost = "visibility" in post;
+  const isExclusive = isRealPost ? post.visibility === "exclusive" : post.isExclusive;
+  const author = isRealPost
+    ? {
+        name: post.author?.full_name || post.author?.username || post.author?.email?.split("@")[0] || "Torcedor Camila",
+        avatar: post.author?.avatar_url || undefined,
+        plan: post.author?.plan_type || "torcedor",
+      }
+    : post.author;
+  const content = post.content;
+  const imageUrl = isRealPost ? post.image_url || undefined : post.imageUrl;
+  const createdAt = isRealPost ? post.created_at : post.createdAt;
+  const likes = isRealPost ? 0 : post.likes;
+  const comments = isRealPost ? 0 : post.comments;
+  const isLikedByMe = isRealPost ? false : post.isLikedByMe;
+
+  if (isExclusive) {
     return (
       <div className="bg-card rounded-lg border border-border p-6 text-center relative overflow-hidden">
         <div className="flex flex-col items-center justify-center p-4">
@@ -35,7 +52,7 @@ export function PostCard({ post }: PostCardProps) {
   };
 
   const planBadgeVariant = (() => {
-    switch(post.author.plan) {
+    switch(author.plan) {
       case 'campeao': return 'gradient';
       case 'camisa': return 'yellow';
       case 'torcedor': return 'blue';
@@ -44,7 +61,7 @@ export function PostCard({ post }: PostCardProps) {
   })();
 
   const planLabel = (() => {
-    switch(post.author.plan) {
+    switch(author.plan) {
       case 'campeao': return 'Campeão';
       case 'camisa': return 'Camisa';
       case 'torcedor': return 'Torcedor';
@@ -55,41 +72,41 @@ export function PostCard({ post }: PostCardProps) {
   return (
     <div className="bg-card rounded-lg border border-border overflow-hidden">
       <div className="p-4 flex items-start gap-4">
-        <Avatar src={post.author.avatar} name={post.author.name} className="w-10 h-10 flex-shrink-0" />
+        <Avatar src={author.avatar} name={author.name} className="w-10 h-10 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-foreground text-sm">{post.author.name}</span>
+              <span className="font-bold text-foreground text-sm">{author.name}</span>
               <Badge variant={planBadgeVariant} className="text-[10px] py-0">{planLabel}</Badge>
-              <span className="text-muted-foreground text-xs">{formatRelativeTime(post.createdAt)}</span>
+              <span className="text-muted-foreground text-xs">{formatRelativeTime(createdAt)}</span>
             </div>
             <button className="text-muted-foreground hover:text-foreground">
               <MoreHorizontal size={18} />
             </button>
           </div>
-          <p className="text-foreground text-sm mt-3 leading-relaxed whitespace-pre-wrap">{post.content}</p>
+          <p className="text-foreground text-sm mt-3 leading-relaxed whitespace-pre-wrap">{content}</p>
         </div>
       </div>
       
-      {post.imageUrl && (
+      {imageUrl && (
         <div className="w-full">
           {/* Using img tag directly for dummy visual data rather than Next/Image to avoid configuration overhead */}
-          <img src={post.imageUrl} alt="Conteúdo da publicação" className="w-full h-auto object-cover max-h-[500px]" />
+          <img src={imageUrl} alt="Conteúdo da publicação" className="w-full h-auto object-cover max-h-[500px]" />
         </div>
       )}
 
       <div className="px-4 py-3 border-t border-border flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button className={cn("flex items-center gap-1.5 text-xs font-semibold transition-colors", post.isLikedByMe ? "text-primary-light" : "text-muted-foreground hover:text-foreground")}>
-            <ThumbsUp size={16} className={cn(post.isLikedByMe && "fill-current")} />
-            <span>{post.likes}</span>
+          <button className={cn("flex items-center gap-1.5 text-xs font-semibold transition-colors", isLikedByMe ? "text-primary-light" : "text-muted-foreground hover:text-foreground")}>
+            <ThumbsUp size={16} className={cn(isLikedByMe && "fill-current")} />
+            <span>{likes}</span>
           </button>
           <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ThumbsDown size={16} />
           </button>
           <button className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
             <MessageCircle size={16} />
-            <span>{post.comments}</span>
+            <span>{comments}</span>
           </button>
         </div>
       </div>

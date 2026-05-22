@@ -1,22 +1,70 @@
 "use client";
 
+import { useState } from "react";
 import { CURRENT_USER } from "@/lib/mock-data";
 import { Avatar } from "@/components/shared/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/lib/supabase/client";
 import { ImagePlus } from "lucide-react";
 
-export function CreatePost() {
-  const { user, loading } = useAuth();
+interface CreatePostProps {
+  onPostCreated?: () => void;
+}
+
+export function CreatePost({ onPostCreated }: CreatePostProps) {
+  const { user, profile, loading } = useAuth();
+  const [content, setContent] = useState("");
+  const [isPosting, setIsPosting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const metadata = user?.user_metadata;
-  const emailName = user?.email?.split("@")[0];
+  const emailName = profile?.email?.split("@")[0] || user?.email?.split("@")[0];
   const displayName =
-    typeof metadata?.full_name === "string" && metadata.full_name.trim()
+    profile?.full_name ||
+    (typeof metadata?.full_name === "string" && metadata.full_name.trim()
       ? metadata.full_name
-      : emailName || CURRENT_USER.name;
+      : emailName || CURRENT_USER.name);
   const avatarUrl =
-    typeof metadata?.avatar_url === "string" && metadata.avatar_url.trim()
+    profile?.avatar_url ||
+    (typeof metadata?.avatar_url === "string" && metadata.avatar_url.trim()
       ? metadata.avatar_url
-      : user ? undefined : CURRENT_USER.avatar;
+      : user ? undefined : CURRENT_USER.avatar);
+
+  async function handleCreatePost() {
+    const trimmedContent = content.trim();
+
+    if (isPosting) {
+      return;
+    }
+
+    if (!user) {
+      setMessage("Você precisa estar logado para publicar.");
+      return;
+    }
+
+    if (!trimmedContent) {
+      setMessage("Escreva algo antes de publicar.");
+      return;
+    }
+
+    setIsPosting(true);
+    setMessage(null);
+
+    const { error } = await supabase.from("posts").insert({
+      author_id: user.id,
+      content: trimmedContent,
+      visibility: "public",
+    });
+
+    setIsPosting(false);
+
+    if (error) {
+      setMessage("Não foi possível publicar agora. Confira se a tabela posts já foi criada no Supabase.");
+      return;
+    }
+
+    setContent("");
+    onPostCreated?.();
+  }
 
   return (
     <div className="bg-card rounded-lg border border-border p-4">
@@ -25,16 +73,26 @@ export function CreatePost() {
         <div className="flex-1">
           <textarea 
             placeholder="No que você está pensando?"
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
             className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-none"
           />
         </div>
       </div>
+      {message && (
+        <p className="mt-3 pl-[52px] text-xs font-semibold text-danger">{message}</p>
+      )}
       <div className="flex items-center justify-between mt-3 pl-[52px]">
         <button className="p-2 text-muted-foreground hover:text-primary transition-colors rounded-full hover:bg-background">
           <ImagePlus size={20} />
         </button>
-        <button className="bg-primary hover:bg-primary-light text-white text-sm font-bold py-2 px-5 rounded-lg transition-colors">
-          Publicar
+        <button
+          type="button"
+          onClick={handleCreatePost}
+          disabled={isPosting}
+          className="bg-primary hover:bg-primary-light disabled:opacity-70 disabled:cursor-not-allowed text-white text-sm font-bold py-2 px-5 rounded-lg transition-colors"
+        >
+          {isPosting ? "Publicando..." : "Publicar"}
         </button>
       </div>
     </div>
