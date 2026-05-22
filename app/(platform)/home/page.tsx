@@ -47,7 +47,11 @@ export default function HomePage() {
 
     if (error) {
       setPosts([]);
-      setErrorMessage("O feed ainda não foi configurado no Supabase. Aplique a migration de posts para começar.");
+      setErrorMessage(
+        error.code === "42P01"
+          ? "A tabela posts ainda não foi criada no Supabase. Aplique a migration de posts para começar."
+          : "Não foi possível carregar o feed agora. Tente novamente em instantes."
+      );
       return;
     }
 
@@ -105,7 +109,7 @@ export default function HomePage() {
         {!isLoading && !errorMessage && posts.length === 0 && (
           <EmptyState
             title="Nenhum post ainda"
-            description="Seja o primeiro a publicar no feed do Camila FC."
+            description="Seja o primeiro a publicar uma mensagem para a torcida."
           />
         )}
 

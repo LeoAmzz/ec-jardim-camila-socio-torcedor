@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase/client";
 import { ImagePlus } from "lucide-react";
 
 interface CreatePostProps {
-  onPostCreated?: () => void;
+  onPostCreated?: () => Promise<void> | void;
 }
 
 export function CreatePost({ onPostCreated }: CreatePostProps) {
@@ -16,6 +16,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
   const [content, setContent] = useState("");
   const [isPosting, setIsPosting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<"success" | "error">("error");
   const metadata = user?.user_metadata;
   const emailName = profile?.email?.split("@")[0] || user?.email?.split("@")[0];
   const displayName =
@@ -32,16 +33,18 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
   async function handleCreatePost() {
     const trimmedContent = content.trim();
 
-    if (isPosting) {
+    if (isPosting || loading) {
       return;
     }
 
     if (!user) {
+      setMessageType("error");
       setMessage("Você precisa estar logado para publicar.");
       return;
     }
 
     if (!trimmedContent) {
+      setMessageType("error");
       setMessage("Escreva algo antes de publicar.");
       return;
     }
@@ -58,12 +61,26 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
     setIsPosting(false);
 
     if (error) {
-      setMessage("Não foi possível publicar agora. Confira se a tabela posts já foi criada no Supabase.");
+      setMessageType("error");
+
+      if (error.code === "42P01") {
+        setMessage("A tabela posts ainda não foi criada no Supabase.");
+        return;
+      }
+
+      if (error.code === "23503") {
+        setMessage("Seu profile ainda não foi encontrado. Recarregue a página e tente novamente.");
+        return;
+      }
+
+      setMessage("Não foi possível publicar agora. Tente novamente em instantes.");
       return;
     }
 
     setContent("");
-    onPostCreated?.();
+    setMessageType("success");
+    setMessage("Post publicado com sucesso.");
+    await onPostCreated?.();
   }
 
   return (
@@ -80,7 +97,9 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
         </div>
       </div>
       {message && (
-        <p className="mt-3 pl-[52px] text-xs font-semibold text-danger">{message}</p>
+        <p className={`mt-3 pl-[52px] text-xs font-semibold ${messageType === "success" ? "text-success" : "text-danger"}`}>
+          {message}
+        </p>
       )}
       <div className="flex items-center justify-between mt-3 pl-[52px]">
         <button className="p-2 text-muted-foreground hover:text-primary transition-colors rounded-full hover:bg-background">
@@ -89,7 +108,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
         <button
           type="button"
           onClick={handleCreatePost}
-          disabled={isPosting}
+          disabled={isPosting || loading || !user}
           className="bg-primary hover:bg-primary-light disabled:opacity-70 disabled:cursor-not-allowed text-white text-sm font-bold py-2 px-5 rounded-lg transition-colors"
         >
           {isPosting ? "Publicando..." : "Publicar"}
