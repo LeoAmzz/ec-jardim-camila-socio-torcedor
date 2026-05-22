@@ -1,16 +1,120 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CURRENT_USER } from "@/lib/mock-data";
 import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
 import { cn } from "@/lib/utils";
 import { Camera, Eye, CreditCard } from "lucide-react";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/lib/supabase/client";
+import type { PlanType } from "@/lib/types/profile";
 
 type Tab = "perfil" | "senha" | "endereco" | "plano";
 
+const PLAN_LABELS: Record<PlanType, string> = {
+  torcedor: "Torcedor",
+  camisa: "Camisa",
+  campeao: "Campeão",
+};
+
+function getMetadataText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeUsername(username: string) {
+  return username
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+}
+
 export default function ConfiguracoesPage() {
   const [activeTab, setActiveTab] = useState<Tab>("perfil");
+  const { user, profile, refreshProfile } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<"success" | "error">("success");
+
+  const metadata = user?.user_metadata;
+  const email = profile?.email || user?.email || "";
+  const emailName = email.split("@")[0];
+  const displayName =
+    profile?.full_name ||
+    getMetadataText(metadata?.full_name) ||
+    emailName ||
+    CURRENT_USER.name;
+  const displayUsername =
+    profile?.username ||
+    getMetadataText(metadata?.username).replace(/^@+/, "") ||
+    emailName ||
+    "usuario";
+  const avatarUrl =
+    profile?.avatar_url ||
+    getMetadataText(metadata?.avatar_url) ||
+    (user ? undefined : CURRENT_USER.avatar);
+  const planType = profile?.plan_type || "torcedor";
+
+  useEffect(() => {
+    setFullName(displayName);
+    setUsername(displayUsername.replace(/^@+/, ""));
+  }, [displayName, displayUsername]);
+
+  async function handleSaveProfile() {
+    setMessage(null);
+
+    if (!user) {
+      setMessageType("error");
+      setMessage("Você precisa estar logado para salvar seu perfil.");
+      return;
+    }
+
+    if (!profile) {
+      setMessageType("error");
+      setMessage("Seu profile ainda não foi encontrado. Tente recarregar a página em alguns segundos.");
+      return;
+    }
+
+    const nextFullName = fullName.trim();
+    const nextUsername = normalizeUsername(username);
+
+    if (!nextFullName || !nextUsername) {
+      setMessageType("error");
+      setMessage("Preencha nome e username antes de salvar.");
+      return;
+    }
+
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        full_name: nextFullName,
+        username: nextUsername,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    setSaving(false);
+
+    if (error) {
+      setMessageType("error");
+      setMessage(
+        error.code === "23505"
+          ? "Este username já está em uso. Escolha outro."
+          : "Não foi possível salvar seu perfil agora. Tente novamente.",
+      );
+      return;
+    }
+
+    await refreshProfile();
+    setMessageType("success");
+    setMessage("Perfil atualizado com sucesso.");
+  }
 
   return (
     <div className="space-y-6">
@@ -50,9 +154,22 @@ export default function ConfiguracoesPage() {
       <div className="bg-card border border-border rounded-xl p-6">
         {activeTab === "perfil" && (
           <div className="space-y-8 max-w-2xl">
+            {message && (
+              <div
+                className={cn(
+                  "rounded-lg border p-3 text-sm",
+                  messageType === "success"
+                    ? "border-success/30 bg-success/10 text-success"
+                    : "border-danger/30 bg-danger/10 text-danger"
+                )}
+              >
+                {message}
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row items-center gap-6">
               <div className="relative group cursor-pointer">
-                <Avatar src={CURRENT_USER.avatar} name={CURRENT_USER.name} className="w-24 h-24" />
+                <Avatar src={avatarUrl} name={displayName} className="w-24 h-24" />
                 <div className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity">
                   <Camera size={20} className="text-white mb-1" />
                   <span className="text-[10px] text-white font-bold">Alterar</span>
@@ -69,7 +186,8 @@ export default function ConfiguracoesPage() {
                 <label className="text-sm font-semibold text-foreground">Nome Completo</label>
                 <input 
                   type="text" 
-                  defaultValue={CURRENT_USER.name}
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
                   className="w-full bg-background border border-border rounded-lg p-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
@@ -80,7 +198,8 @@ export default function ConfiguracoesPage() {
                 </label>
                 <input 
                   type="text" 
-                  defaultValue={CURRENT_USER.username.replace('@', '')}
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
                   className="w-full bg-background border border-border rounded-lg p-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
@@ -90,7 +209,7 @@ export default function ConfiguracoesPage() {
                   <input 
                     type="email" 
                     readOnly
-                    defaultValue="eduardo.h@example.com"
+                    value={email}
                     className="w-full bg-muted border border-border rounded-lg p-2.5 text-sm text-muted-foreground cursor-not-allowed"
                   />
                   <Eye className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
@@ -108,8 +227,13 @@ export default function ConfiguracoesPage() {
             </div>
 
             <div className="pt-4 border-t border-border flex justify-end">
-              <button className="bg-primary hover:bg-primary-light text-white font-bold py-2.5 px-6 rounded-lg transition-colors">
-                Salvar Alterações
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="bg-primary hover:bg-primary-light disabled:opacity-70 disabled:cursor-not-allowed text-white font-bold py-2.5 px-6 rounded-lg transition-colors"
+              >
+                {saving ? "Salvando..." : "Salvar Alterações"}
               </button>
             </div>
           </div>
@@ -121,7 +245,7 @@ export default function ConfiguracoesPage() {
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Seu plano atual</p>
                 <div className="flex items-center gap-3 mb-2">
-                  <h3 className="text-2xl font-bold text-foreground capitalize">{CURRENT_USER.plan}</h3>
+                  <h3 className="text-2xl font-bold text-foreground">{PLAN_LABELS[planType]}</h3>
                   <Badge variant="gradient">Ativo</Badge>
                 </div>
                 <div className="text-sm text-muted-foreground">
