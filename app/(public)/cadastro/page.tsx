@@ -1,7 +1,79 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { supabase } from "@/lib/supabase/client";
+
+function buildUsername(fullName: string, email: string) {
+  const source = fullName.trim() || email.split("@")[0] || "torcedor";
+
+  return source
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 40);
+}
 
 export default function CadastroPage() {
+  const router = useRouter();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  async function handleSignup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setIsSuccess(false);
+
+    if (password !== confirmPassword) {
+      setMessage("As senhas não coincidem.");
+      return;
+    }
+
+    if (!acceptedTerms) {
+      setMessage("Você precisa aceitar os termos para criar sua conta.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: {
+          full_name: fullName.trim(),
+          username: buildUsername(fullName, email),
+        },
+      },
+    });
+
+    setIsLoading(false);
+
+    if (error) {
+      setMessage("Não foi possível criar sua conta. Confira os dados e tente novamente.");
+      return;
+    }
+
+    if (data.session) {
+      router.push("/home");
+      return;
+    }
+
+    setIsSuccess(true);
+    setMessage("Conta criada. Verifique seu email para confirmar o cadastro antes de entrar.");
+  }
+
   return (
     <div className="min-h-screen bg-bg-dark flex items-center justify-center p-4 py-12">
       <div className="w-full max-w-md bg-card border border-border rounded-2xl p-8 shadow-2xl relative overflow-hidden">
@@ -16,13 +88,28 @@ export default function CadastroPage() {
           <p className="text-sm text-muted-foreground mt-1">Junte-se ao Sócio Camila FC hoje</p>
         </div>
 
-        <form className="space-y-4">
+        {message && (
+          <div
+            className={`mb-4 rounded-lg border p-3 text-sm ${
+              isSuccess
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-danger/30 bg-danger/10 text-danger"
+            }`}
+          >
+            {message}
+          </div>
+        )}
+
+        <form className="space-y-4" onSubmit={handleSignup}>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-foreground">Nome Completo</label>
             <input 
               type="text" 
               placeholder="João da Silva"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
               className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-shadow"
+              required
             />
           </div>
 
@@ -31,7 +118,10 @@ export default function CadastroPage() {
             <input 
               type="email" 
               placeholder="seu@email.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-shadow"
+              required
             />
           </div>
           
@@ -40,7 +130,11 @@ export default function CadastroPage() {
             <input 
               type="password" 
               placeholder="Mínimo 8 caracteres"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
               className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-shadow"
+              minLength={8}
+              required
             />
           </div>
 
@@ -49,21 +143,35 @@ export default function CadastroPage() {
             <input 
               type="password" 
               placeholder="Digite a senha novamente"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
               className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-shadow"
+              minLength={8}
+              required
             />
           </div>
 
           <div className="pt-2">
             <div className="flex items-start gap-3 mb-6">
               <div className="pt-1">
-                <input type="checkbox" id="terms" className="w-4 h-4 rounded text-primary bg-background border-border" />
+                <input
+                  type="checkbox"
+                  id="terms"
+                  checked={acceptedTerms}
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                  className="w-4 h-4 rounded text-primary bg-background border-border"
+                />
               </div>
               <label htmlFor="terms" className="text-xs text-muted-foreground leading-relaxed">
                 Eu concordo com os <a href="#" className="text-primary hover:underline">Termos de Uso</a> e <a href="#" className="text-primary hover:underline">Política de Privacidade</a> do E.C. Jardim Camila.
               </label>
             </div>
-            <button className="w-full bg-accent hover:bg-accent-dark text-bg-dark font-black py-3 px-4 rounded-lg transition-colors shadow-md shadow-accent/20">
-              Criar conta
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-accent hover:bg-accent-dark disabled:opacity-70 disabled:cursor-not-allowed text-bg-dark font-black py-3 px-4 rounded-lg transition-colors shadow-md shadow-accent/20"
+            >
+              {isLoading ? "Criando conta..." : "Criar conta"}
             </button>
           </div>
         </form>
