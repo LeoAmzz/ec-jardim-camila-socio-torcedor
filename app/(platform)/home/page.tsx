@@ -114,7 +114,7 @@ export default function HomePage() {
         )}
 
         {!isLoading && !errorMessage && posts.map((post) => (
-          <PostCard key={post.id} post={post} />
+          <PostCard key={post.id} post={post} onPostChanged={loadPosts} />
         ))}
       </div>
     </div>

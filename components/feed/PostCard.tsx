@@ -1,17 +1,31 @@
-import { Post } from "@/lib/mock-data";
+"use client";
+
+import { useState } from "react";
+import type { Post } from "@/lib/mock-data";
 import type { PostWithAuthor } from "@/lib/types/post";
 import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
 import { ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/lib/supabase/client";
 
 interface PostCardProps {
   post: Post | PostWithAuthor;
+  onPostChanged?: () => Promise<void> | void;
 }
 
-export function PostCard({ post }: PostCardProps) {
+export function PostCard({ post, onPostChanged }: PostCardProps) {
+  const { user } = useAuth();
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContent, setDraftContent] = useState(post.content);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const isRealPost = "visibility" in post;
+  const canManagePost = isRealPost && user?.id === post.author_id;
   const isExclusive = isRealPost ? post.visibility === "exclusive" : post.isExclusive;
   const author = isRealPost
     ? {
@@ -26,6 +40,79 @@ export function PostCard({ post }: PostCardProps) {
   const likes = isRealPost ? 0 : post.likes;
   const comments = isRealPost ? 0 : post.comments;
   const isLikedByMe = isRealPost ? false : post.isLikedByMe;
+
+  async function handleSaveEdit() {
+    const nextContent = draftContent.trim();
+
+    if (!isRealPost || !user || isSaving) {
+      return;
+    }
+
+    if (!nextContent) {
+      setMessage("O post não pode ficar vazio.");
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("posts")
+      .update({
+        content: nextContent,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", post.id)
+      .eq("author_id", user.id);
+
+    setIsSaving(false);
+
+    if (error) {
+      setMessage("Não foi possível salvar a edição. Tente novamente.");
+      return;
+    }
+
+    setDraftContent(nextContent);
+    setIsEditing(false);
+    setIsActionsOpen(false);
+    await onPostChanged?.();
+  }
+
+  async function handleDeletePost() {
+    if (!isRealPost || !user || isDeleting) {
+      return;
+    }
+
+    const confirmed = window.confirm("Excluir este post?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", post.id)
+      .eq("author_id", user.id);
+
+    setIsDeleting(false);
+
+    if (error) {
+      setMessage("Não foi possível excluir o post. Tente novamente.");
+      return;
+    }
+
+    await onPostChanged?.();
+  }
+
+  function handleCancelEdit() {
+    setDraftContent(content);
+    setIsEditing(false);
+    setMessage(null);
+  }
 
   if (isExclusive) {
     return (
@@ -80,11 +167,73 @@ export function PostCard({ post }: PostCardProps) {
               <Badge variant={planBadgeVariant} className="text-[10px] py-0">{planLabel}</Badge>
               <span className="text-muted-foreground text-xs">{formatRelativeTime(createdAt)}</span>
             </div>
-            <button className="text-muted-foreground hover:text-foreground">
-              <MoreHorizontal size={18} />
-            </button>
+            <div className="relative">
+              {canManagePost && (
+                <button
+                  type="button"
+                  onClick={() => setIsActionsOpen((value) => !value)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Ações do post"
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+              )}
+              {canManagePost && isActionsOpen && (
+                <div className="absolute right-0 top-6 z-20 w-28 overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftContent(content);
+                      setMessage(null);
+                      setIsEditing(true);
+                      setIsActionsOpen(false);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-sidebar"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeletePost}
+                    disabled={isDeleting}
+                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-danger hover:bg-sidebar disabled:opacity-60"
+                  >
+                    {isDeleting ? "Excluindo..." : "Excluir"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          <p className="text-foreground text-sm mt-3 leading-relaxed whitespace-pre-wrap">{content}</p>
+          {isEditing ? (
+            <div className="mt-3 space-y-3">
+              <textarea
+                value={draftContent}
+                onChange={(event) => setDraftContent(event.target.value)}
+                className="w-full min-h-[96px] resize-none rounded-lg border border-border bg-background p-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={isSaving}
+                  className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSaving ? "Salvando..." : "Salvar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  className="rounded-lg border border-border px-4 py-2 text-xs font-bold text-foreground transition-colors hover:bg-sidebar disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-foreground text-sm mt-3 leading-relaxed whitespace-pre-wrap">{content}</p>
+          )}
+          {message && <p className="mt-3 text-xs font-semibold text-danger">{message}</p>}
         </div>
       </div>
       
