@@ -16,6 +16,7 @@ export interface PostWithAuthor extends Post {
   author: Pick<Profile, "id" | "full_name" | "username" | "avatar_url" | "plan_type" | "email"> | null;
   likes_count: number;
   liked_by_me: boolean;
+  comments_count: number;
 }
 
 export interface PostLike {
@@ -23,4 +24,17 @@ export interface PostLike {
   post_id: string;
   user_id: string;
   created_at: string;
+}
+
+export interface PostComment {
+  id: string;
+  post_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PostCommentWithAuthor extends PostComment {
+  author: Pick<Profile, "id" | "full_name" | "username" | "avatar_url" | "email"> | null;
 }

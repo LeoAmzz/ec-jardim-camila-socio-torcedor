@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Post } from "@/lib/mock-data";
-import type { PostWithAuthor } from "@/lib/types/post";
+import type { PostCommentWithAuthor, PostWithAuthor } from "@/lib/types/post";
 import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
 import { ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
@@ -24,6 +24,11 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLikeLoading, setIsLikeLoading] = useState(false);
+  const [areCommentsOpen, setAreCommentsOpen] = useState(false);
+  const [commentsList, setCommentsList] = useState<PostCommentWithAuthor[]>([]);
+  const [areCommentsLoading, setAreCommentsLoading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const isRealPost = "visibility" in post;
   const canManagePost = isRealPost && user?.id === post.author_id;
@@ -39,15 +44,17 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const imageUrl = isRealPost ? post.image_url || undefined : post.imageUrl;
   const createdAt = isRealPost ? post.created_at : post.createdAt;
   const initialLikes = isRealPost ? post.likes_count : post.likes;
-  const comments = isRealPost ? 0 : post.comments;
+  const initialComments = isRealPost ? post.comments_count : post.comments;
   const initialLikedByMe = isRealPost ? post.liked_by_me : post.isLikedByMe;
   const [likes, setLikes] = useState(initialLikes);
   const [isLikedByMe, setIsLikedByMe] = useState(initialLikedByMe);
+  const [commentsCount, setCommentsCount] = useState(initialComments);
 
   useEffect(() => {
     setLikes(initialLikes);
     setIsLikedByMe(initialLikedByMe);
-  }, [initialLikedByMe, initialLikes, post.id]);
+    setCommentsCount(initialComments);
+  }, [initialComments, initialLikedByMe, initialLikes, post.id]);
 
   async function handleSaveEdit() {
     const nextContent = draftContent.trim();
@@ -167,6 +174,106 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
 
       return current + 1;
     });
+  }
+
+  async function loadComments() {
+    if (!isRealPost) {
+      return;
+    }
+
+    setAreCommentsLoading(true);
+    setMessage(null);
+
+    const { data, error } = await supabase
+      .from("post_comments")
+      .select(`
+        id,
+        post_id,
+        author_id,
+        content,
+        created_at,
+        updated_at,
+        author:profiles (
+          id,
+          full_name,
+          username,
+          avatar_url,
+          email
+        )
+      `)
+      .eq("post_id", post.id)
+      .order("created_at", { ascending: true })
+      .returns<PostCommentWithAuthor[]>();
+
+    setAreCommentsLoading(false);
+
+    if (error) {
+      setMessage(
+        error.code === "42P01"
+          ? "A tabela de comentários ainda não foi criada no Supabase."
+          : "Não foi possível carregar os comentários. Tente novamente."
+      );
+      return;
+    }
+
+    setCommentsList(data || []);
+    setCommentsCount(data?.length || 0);
+  }
+
+  async function handleToggleComments() {
+    if (!isRealPost) {
+      return;
+    }
+
+    const nextOpenState = !areCommentsOpen;
+    setAreCommentsOpen(nextOpenState);
+
+    if (nextOpenState && commentsList.length === 0) {
+      await loadComments();
+    }
+  }
+
+  async function handleCreateComment() {
+    const nextComment = commentDraft.trim();
+
+    if (!isRealPost || isCommentSubmitting) {
+      return;
+    }
+
+    if (!user) {
+      setMessage("Faça login para comentar.");
+      return;
+    }
+
+    if (!nextComment) {
+      setMessage("O comentário não pode ficar vazio.");
+      return;
+    }
+
+    setIsCommentSubmitting(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("post_comments")
+      .insert({
+        post_id: post.id,
+        author_id: user.id,
+        content: nextComment,
+      });
+
+    setIsCommentSubmitting(false);
+
+    if (error) {
+      setMessage(
+        error.code === "42P01"
+          ? "A tabela de comentários ainda não foi criada no Supabase."
+          : "Não foi possível publicar o comentário. Tente novamente."
+      );
+      return;
+    }
+
+    setCommentDraft("");
+    await loadComments();
   }
 
   if (isExclusive) {
@@ -316,12 +423,66 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
           <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ThumbsDown size={16} />
           </button>
-          <button className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            type="button"
+            onClick={handleToggleComments}
+            className={cn(
+              "flex items-center gap-1.5 text-xs font-semibold transition-colors",
+              areCommentsOpen ? "text-primary-light" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
             <MessageCircle size={16} />
-            <span>{comments}</span>
+            <span>{commentsCount}</span>
           </button>
         </div>
       </div>
+      {areCommentsOpen && (
+        <div className="border-t border-border px-4 py-4">
+          {areCommentsLoading ? (
+            <p className="text-xs font-semibold text-muted-foreground">Carregando comentários...</p>
+          ) : commentsList.length === 0 ? (
+            <p className="text-xs font-semibold text-muted-foreground">Nenhum comentário ainda. Seja o primeiro a comentar.</p>
+          ) : (
+            <div className="space-y-3">
+              {commentsList.map((comment) => {
+                const commentAuthorName =
+                  comment.author?.full_name ||
+                  comment.author?.username ||
+                  comment.author?.email?.split("@")[0] ||
+                  "Torcedor Camila";
+
+                return (
+                  <div key={comment.id} className="flex gap-3">
+                    <Avatar src={comment.author?.avatar_url || undefined} name={commentAuthorName} className="h-8 w-8 flex-shrink-0" />
+                    <div className="min-w-0 flex-1 rounded-lg bg-sidebar px-3 py-2">
+                      <p className="text-xs font-bold text-foreground">{commentAuthorName}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{comment.content}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4 flex gap-2">
+            <input
+              type="text"
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
+              placeholder="Escreva um comentário..."
+              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={handleCreateComment}
+              disabled={isCommentSubmitting}
+              className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isCommentSubmitting ? "Enviando..." : "Enviar"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

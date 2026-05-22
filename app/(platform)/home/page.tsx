@@ -43,7 +43,7 @@ export default function HomePage() {
         )
       `)
       .order("created_at", { ascending: false })
-      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me">[]>();
+      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me" | "comments_count">[]>();
 
     if (error) {
       setPosts([]);
@@ -83,11 +83,23 @@ export default function HomePage() {
       });
     }
 
+    const { data: commentsData } = await supabase
+      .from("post_comments")
+      .select("post_id")
+      .in("post_id", postIds);
+
+    const commentsByPost = new Map<string, number>();
+
+    commentsData?.forEach((comment) => {
+      commentsByPost.set(comment.post_id, (commentsByPost.get(comment.post_id) || 0) + 1);
+    });
+
     setPosts(
       loadedPosts.map((post) => ({
         ...post,
         likes_count: likesByPost.get(post.id) || 0,
         liked_by_me: likedPostIds.has(post.id),
+        comments_count: commentsByPost.get(post.id) || 0,
       }))
     );
     setIsLoading(false);
