@@ -13,6 +13,12 @@ import { ProgressBar } from "@/components/shared/ProgressBar";
 import { Badge } from "@/components/shared/Badge";
 import { useAuth } from "@/components/auth/AuthProvider";
 
+const PLAN_LABELS = {
+  torcedor: "Torcedor",
+  camisa: "Camisa",
+  campeao: "Campeão",
+} as const;
+
 const NAV_ITEMS = [
   { label: "Home", href: "/home", icon: Home },
   { label: "Buscar", href: "/buscar", icon: Search },
@@ -27,23 +33,28 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading, signOut } = useAuth();
+  const { user, profile, loading, profileLoading, signOut } = useAuth();
 
   const metadata = user?.user_metadata;
-  const emailName = user?.email?.split("@")[0];
+  const email = profile?.email || user?.email;
+  const emailName = email?.split("@")[0];
   const displayName =
-    typeof metadata?.full_name === "string" && metadata.full_name.trim()
+    profile?.full_name ||
+    (typeof metadata?.full_name === "string" && metadata.full_name.trim()
       ? metadata.full_name
-      : emailName || CURRENT_USER.name;
+      : emailName || CURRENT_USER.name);
   const username =
-    typeof metadata?.username === "string" && metadata.username.trim()
+    profile?.username ||
+    (typeof metadata?.username === "string" && metadata.username.trim()
       ? metadata.username.replace(/^@+/, "")
-      : emailName || "usuario";
-  const displayUsername = loading ? "Carregando..." : `@${username}`;
+      : emailName || "usuario");
+  const displayUsername = loading || profileLoading ? "Carregando..." : `@${username.replace(/^@+/, "")}`;
+  const planType = profile?.plan_type || "torcedor";
   const avatarUrl =
-    typeof metadata?.avatar_url === "string" && metadata.avatar_url.trim()
+    profile?.avatar_url ||
+    (typeof metadata?.avatar_url === "string" && metadata.avatar_url.trim()
       ? metadata.avatar_url
-      : user ? undefined : CURRENT_USER.avatar;
+      : user ? undefined : CURRENT_USER.avatar);
 
   async function handleLogout() {
     await signOut();
@@ -116,7 +127,7 @@ export function Sidebar() {
           <Avatar src={avatarUrl} name={loading ? CURRENT_USER.name : displayName} className="w-10 h-10" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{displayUsername}</p>
-            <Badge variant="blue" className="text-[10px] py-0">{CURRENT_USER.plan}</Badge>
+            <Badge variant="blue" className="text-[10px] py-0">{PLAN_LABELS[planType]}</Badge>
           </div>
         </div>
         <button
