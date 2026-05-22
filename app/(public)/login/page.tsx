@@ -6,6 +6,20 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
+function getLoginErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("email not confirmed")) {
+    return "Confirme seu email antes de entrar.";
+  }
+
+  if (normalizedMessage.includes("invalid login credentials")) {
+    return "Email ou senha incorretos. Confira os dados e tente novamente.";
+  }
+
+  return "Não foi possível entrar agora. Tente novamente em instantes.";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -35,6 +49,11 @@ export default function LoginPage() {
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isLoading) {
+      return;
+    }
+
     setMessage(null);
     setIsLoading(true);
 
@@ -46,7 +65,7 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (error) {
-      setMessage("Email ou senha incorretos. Confira os dados e tente novamente.");
+      setMessage(getLoginErrorMessage(error.message));
       return;
     }
 

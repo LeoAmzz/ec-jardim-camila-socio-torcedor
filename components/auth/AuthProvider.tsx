@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -30,26 +31,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
 
-  async function loadProfile(userId: string) {
+  const loadProfile = useCallback(async (userId: string) => {
     setProfileLoading(true);
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle<Profile>();
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle<Profile>();
 
-    if (error) {
+      if (error) {
+        setProfile(null);
+        return;
+      }
+
+      setProfile(data);
+    } catch {
       setProfile(null);
+    } finally {
       setProfileLoading(false);
-      return;
     }
+  }, []);
 
-    setProfile(data);
-    setProfileLoading(false);
-  }
-
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     const userId = session?.user.id;
 
     if (!userId) {
@@ -58,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     await loadProfile(userId);
-  }
+  }, [loadProfile, session?.user.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -99,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadProfile]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -115,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
       },
     }),
-    [loading, profile, profileLoading, session],
+    [loading, profile, profileLoading, refreshProfile, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -6,6 +6,24 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
+function getSignupErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("user already registered")) {
+    return "Já existe uma conta com este email.";
+  }
+
+  if (normalizedMessage.includes("password")) {
+    return "A senha precisa atender aos requisitos mínimos.";
+  }
+
+  if (normalizedMessage.includes("email")) {
+    return "Confira o email informado e tente novamente.";
+  }
+
+  return "Não foi possível criar sua conta agora. Tente novamente em instantes.";
+}
+
 function buildUsername(fullName: string, email: string) {
   const source = fullName.trim() || email.split("@")[0] || "torcedor";
 
@@ -52,6 +70,11 @@ export default function CadastroPage() {
 
   async function handleSignup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isLoading) {
+      return;
+    }
+
     setMessage(null);
     setIsSuccess(false);
 
@@ -81,7 +104,7 @@ export default function CadastroPage() {
     setIsLoading(false);
 
     if (error) {
-      setMessage("Não foi possível criar sua conta. Confira os dados e tente novamente.");
+      setMessage(getSignupErrorMessage(error.message));
       return;
     }
 
