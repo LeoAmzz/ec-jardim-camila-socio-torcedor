@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root, .dark {
+    /* E.C. Jardim Camila Brand Colors */
+    --color-primary: #1B4FD8;
+    --color-primary-dark: #1338A8;
+    --color-primary-light: #3B6FFF;
+    --color-accent: #F5C518;
+    --color-accent-dark: #D4A80E;
+    --color-white: #FFFFFF;
+    --color-bg-dark: #0D1117;
+    --color-bg-card: #161B22;
+    --color-bg-sidebar: #0D1117;
+    --color-border: #21262D;
+    --color-text-primary: #F0F6FC;
+    --color-text-secondary: #8B949E;
+    --color-success: #238636;
+    --color-danger: #DA3633;
+
+    /* Shadcn UI Overrides */
+    --background: var(--color-bg-dark);
+    --foreground: var(--color-text-primary);
+
+    --card: var(--color-bg-card);
+    --card-foreground: var(--color-text-primary);
+
+    --popover: var(--color-bg-card);
+    --popover-foreground: var(--color-text-primary);
+
+    --primary: var(--color-primary);
+    --primary-foreground: var(--color-white);
+
+    --secondary: var(--color-bg-card);
+    --secondary-foreground: var(--color-text-primary);
+
+    --muted: var(--color-bg-card);
+    --muted-foreground: var(--color-text-secondary);
+
+    --accent: var(--color-border);
+    --accent-foreground: var(--color-text-primary);
+
+    --destructive: var(--color-danger);
+    --destructive-foreground: var(--color-white);
+
+    --border: var(--color-border);
+    --input: var(--color-border);
+    --ring: var(--color-primary);
+
+    --radius: 0.5rem;
+
+    --sidebar-background: var(--color-bg-sidebar);
+    --sidebar-foreground: var(--color-text-primary);
+    --sidebar-primary: var(--color-primary);
+    --sidebar-primary-foreground: var(--color-white);
+    --sidebar-accent: var(--color-bg-card);
+    --sidebar-accent-foreground: var(--color-text-primary);
+    --sidebar-border: var(--color-border);
+    --sidebar-ring: var(--color-primary);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body, html {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
