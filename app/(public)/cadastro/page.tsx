@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
 function buildUsername(fullName: string, email: string) {
@@ -29,6 +29,26 @@ export default function CadastroPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function redirectIfLoggedIn() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (isMounted && session?.user) {
+        router.replace("/home");
+      }
+    }
+
+    void redirectIfLoggedIn();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   async function handleSignup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
