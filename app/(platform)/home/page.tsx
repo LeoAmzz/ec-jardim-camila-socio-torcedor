@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 type Tab = "ultimas" | "alta" | "exclusivo";
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { user, profile, profileLoading } = useAuth();
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("ultimas");
   const [posts, setPosts] = useState<PostWithAuthor[]>([]);
@@ -27,7 +27,8 @@ export default function HomePage() {
 
     setErrorMessage(null);
 
-    const { data, error } = await supabase
+    const canSeeExclusive = profile?.plan_type === "camisa" || profile?.plan_type === "campeao";
+    const query = supabase
       .from("posts")
       .select(`
         id,
@@ -46,8 +47,14 @@ export default function HomePage() {
           email
         )
       `)
-      .order("created_at", { ascending: false })
-      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me" | "comments_count" | "images">[]>();
+      .order("created_at", { ascending: false });
+
+    // TODO: reforçar esta regra no RLS quando pagamentos e gestão de planos estiverem completos.
+    if (!canSeeExclusive) {
+      query.eq("visibility", "public");
+    }
+
+    const { data, error } = await query.returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me" | "comments_count" | "images">[]>();
 
     if (error) {
       setPosts([]);
@@ -128,7 +135,7 @@ export default function HomePage() {
       }))
     );
     setIsLoading(false);
-  }, [user?.id]);
+  }, [profile?.plan_type, user?.id]);
 
   useEffect(() => {
     void loadPosts();
@@ -206,14 +213,23 @@ export default function HomePage() {
           />
         )}
 
-        {!isLoading && !errorMessage && posts.length === 0 && (
+        {!isLoading && !errorMessage && activeTab === "exclusivo" && !profileLoading && profile?.plan_type !== "camisa" && profile?.plan_type !== "campeao" && (
           <EmptyState
-            title="Nenhum post ainda"
-            description="Seja o primeiro a publicar uma mensagem para a torcida."
+            title="Conteúdo exclusivo para sócios"
+            description="Conteúdo exclusivo para sócios Camisa e Campeão."
           />
         )}
 
-        {!isLoading && !errorMessage && posts.map((post) => (
+        {!isLoading && !errorMessage && !(activeTab === "exclusivo" && !profileLoading && profile?.plan_type !== "camisa" && profile?.plan_type !== "campeao") && posts.filter((post) => activeTab === "exclusivo" ? post.visibility === "exclusive" : true).length === 0 && (
+          <EmptyState
+            title={activeTab === "exclusivo" ? "Nenhum conteúdo exclusivo ainda" : "Nenhum post ainda"}
+            description={activeTab === "exclusivo" ? "Os conteúdos exclusivos para sócios aparecerão aqui." : "Seja o primeiro a publicar uma mensagem para a torcida."}
+          />
+        )}
+
+        {!isLoading && !errorMessage && !(activeTab === "exclusivo" && !profileLoading && profile?.plan_type !== "camisa" && profile?.plan_type !== "campeao") && posts
+          .filter((post) => activeTab === "exclusivo" ? post.visibility === "exclusive" : true)
+          .map((post) => (
           <PostCard key={post.id} post={post} onPostChanged={loadPosts} />
         ))}
       </div>

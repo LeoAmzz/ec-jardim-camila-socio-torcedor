@@ -5,6 +5,7 @@ import { CURRENT_USER } from "@/lib/mock-data";
 import { Avatar } from "@/components/shared/Avatar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
+import type { PostVisibility } from "@/lib/types/post";
 import { ImagePlus } from "lucide-react";
 
 interface CreatePostProps {
@@ -17,6 +18,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
   const [content, setContent] = useState("");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [visibility, setVisibility] = useState<PostVisibility>("public");
   const [isPosting, setIsPosting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<"success" | "error">("error");
@@ -166,7 +168,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
       author_id: user.id,
       content: trimmedContent,
       image_url: null,
-      visibility: "public",
+      visibility,
     }).select("id").single();
 
     if (error) {
@@ -245,6 +247,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
 
     setIsPosting(false);
     setContent("");
+    setVisibility("public");
     handleRemoveAllImages();
     setMessageType("success");
     setMessage("Post publicado com sucesso.");
@@ -289,6 +292,32 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
           ))}
         </div>
       )}
+      <div className="mt-3 flex flex-wrap gap-2 pl-[52px]">
+        <button
+          type="button"
+          onClick={() => setVisibility("public")}
+          disabled={isPosting}
+          className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+            visibility === "public"
+              ? "border-primary bg-primary text-white"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Público
+        </button>
+        <button
+          type="button"
+          onClick={() => setVisibility("exclusive")}
+          disabled={isPosting}
+          className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+            visibility === "exclusive"
+              ? "border-accent bg-accent text-bg-dark"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Exclusivo para sócios
+        </button>
+      </div>
       <div className="flex items-center justify-between mt-3 pl-[52px]">
         <input
           ref={fileInputRef}

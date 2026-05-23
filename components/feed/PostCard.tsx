@@ -7,7 +7,6 @@ import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
 import { ChevronLeft, ChevronRight, ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
 
@@ -395,25 +394,6 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     }
   }
 
-  if (isExclusive) {
-    return (
-      <div className="bg-card rounded-lg border border-border p-6 text-center relative overflow-hidden">
-        <div className="flex flex-col items-center justify-center p-4">
-          <div className="w-12 h-12 bg-accent text-bg-dark rounded-full flex items-center justify-center mb-4">
-            <Lock size={24} />
-          </div>
-          <h4 className="text-foreground font-bold text-lg mb-2">Conteúdo Exclusivo</h4>
-          <p className="text-muted-foreground text-sm mb-4">Este conteúdo está disponível apenas para assinantes do plano Camisa ou superior.</p>
-          <Link href="/planos">
-            <button className="bg-accent text-bg-dark font-bold text-sm px-6 py-2 rounded-lg hover:bg-accent-dark transition-colors">
-              Ver Planos
-            </button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   const formatRelativeTime = (_dateString: string) => {
     // simplified for visual purposes. You could use date-fns formatDistanceToNow
     return "há 2 horas";
@@ -446,6 +426,12 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-foreground text-sm">{author.name}</span>
               <Badge variant={planBadgeVariant} className="text-[10px] py-0">{planLabel}</Badge>
+              {isExclusive && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-bg-dark">
+                  <Lock size={10} />
+                  Exclusivo
+                </span>
+              )}
               <span className="text-muted-foreground text-xs">{formatRelativeTime(createdAt)}</span>
             </div>
             <div className="relative">
