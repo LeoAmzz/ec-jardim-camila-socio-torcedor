@@ -55,7 +55,6 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
       ? [post.imageUrl]
       : [];
   const activeImageUrl = images[activeImageIndex];
-  const createdAt = isRealPost ? post.created_at : post.createdAt;
   const initialLikes = isRealPost ? post.likes_count : post.likes;
   const initialComments = isRealPost ? post.comments_count : post.comments;
   const initialLikedByMe = isRealPost ? post.liked_by_me : post.isLikedByMe;
@@ -394,7 +393,7 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     }
   }
 
-  const formatRelativeTime = (_dateString: string) => {
+  const formatRelativeTime = () => {
     // simplified for visual purposes. You could use date-fns formatDistanceToNow
     return "há 2 horas";
   };
@@ -432,7 +431,7 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
                   Exclusivo
                 </span>
               )}
-              <span className="text-muted-foreground text-xs">{formatRelativeTime(createdAt)}</span>
+              <span className="text-muted-foreground text-xs">{formatRelativeTime()}</span>
             </div>
             <div className="relative">
               {canManagePost && (
