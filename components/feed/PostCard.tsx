@@ -5,7 +5,7 @@ import type { Post } from "@/lib/mock-data";
 import type { PostCommentWithAuthor, PostWithAuthor } from "@/lib/types/post";
 import { Avatar } from "@/components/shared/Avatar";
 import { Badge } from "@/components/shared/Badge";
-import { ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, ThumbsUp, ThumbsDown, MessageCircle, Lock, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -33,6 +33,7 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
   const [commentEditDraft, setCommentEditDraft] = useState("");
   const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const isRealPost = "visibility" in post;
   const canManagePost = isRealPost && user?.id === post.author_id;
@@ -45,7 +46,16 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
       }
     : post.author;
   const content = post.content;
-  const imageUrl = isRealPost ? post.image_url || undefined : post.imageUrl;
+  const images = isRealPost
+    ? post.images.length > 0
+      ? post.images.map((image) => image.image_url)
+      : post.image_url
+        ? [post.image_url]
+        : []
+    : post.imageUrl
+      ? [post.imageUrl]
+      : [];
+  const activeImageUrl = images[activeImageIndex];
   const createdAt = isRealPost ? post.created_at : post.createdAt;
   const initialLikes = isRealPost ? post.likes_count : post.likes;
   const initialComments = isRealPost ? post.comments_count : post.comments;
@@ -58,7 +68,16 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     setLikes(initialLikes);
     setIsLikedByMe(initialLikedByMe);
     setCommentsCount(initialComments);
+    setActiveImageIndex(0);
   }, [initialComments, initialLikedByMe, initialLikes, post.id]);
+
+  function handlePreviousImage() {
+    setActiveImageIndex((currentIndex) => (currentIndex === 0 ? images.length - 1 : currentIndex - 1));
+  }
+
+  function handleNextImage() {
+    setActiveImageIndex((currentIndex) => (currentIndex === images.length - 1 ? 0 : currentIndex + 1));
+  }
 
   async function handleSaveEdit() {
     const nextContent = draftContent.trim();
@@ -122,6 +141,10 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
     if (error) {
       setMessage("Não foi possível excluir o post. Tente novamente.");
       return;
+    }
+
+    if (isRealPost && post.images.length > 0) {
+      await supabase.storage.from("post-images").remove(post.images.map((image) => image.storage_path));
     }
 
     await onPostChanged?.();
@@ -495,10 +518,47 @@ export function PostCard({ post, onPostChanged }: PostCardProps) {
         </div>
       </div>
       
-      {imageUrl && (
-        <div className="w-full">
+      {activeImageUrl && (
+        <div className="relative w-full bg-background">
           {/* Using img tag directly for dummy visual data rather than Next/Image to avoid configuration overhead */}
-          <img src={imageUrl} alt="Conteúdo da publicação" className="w-full h-auto object-cover max-h-[500px]" />
+          <img src={activeImageUrl} alt="Conteúdo da publicação" className="w-full h-auto object-cover max-h-[500px]" />
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={handlePreviousImage}
+                className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg-dark/75 text-white transition-colors hover:bg-bg-dark"
+                aria-label="Imagem anterior"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                type="button"
+                onClick={handleNextImage}
+                className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg-dark/75 text-white transition-colors hover:bg-bg-dark"
+                aria-label="Próxima imagem"
+              >
+                <ChevronRight size={20} />
+              </button>
+              <div className="absolute right-3 top-3 rounded-full bg-bg-dark/75 px-3 py-1 text-xs font-bold text-white">
+                {activeImageIndex + 1}/{images.length}
+              </div>
+              <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                {images.map((image, index) => (
+                  <button
+                    key={`${image}-${index}`}
+                    type="button"
+                    onClick={() => setActiveImageIndex(index)}
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full transition-colors",
+                      activeImageIndex === index ? "bg-white" : "bg-white/45"
+                    )}
+                    aria-label={`Ir para imagem ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

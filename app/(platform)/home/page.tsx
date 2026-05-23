@@ -6,7 +6,7 @@ import { PostCard } from "@/components/feed/PostCard";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { supabase } from "@/lib/supabase/client";
-import type { PostWithAuthor } from "@/lib/types/post";
+import type { PostImage, PostWithAuthor } from "@/lib/types/post";
 import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +43,7 @@ export default function HomePage() {
         )
       `)
       .order("created_at", { ascending: false })
-      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me" | "comments_count">[]>();
+      .returns<Omit<PostWithAuthor, "likes_count" | "liked_by_me" | "comments_count" | "images">[]>();
 
     if (error) {
       setPosts([]);
@@ -94,12 +94,27 @@ export default function HomePage() {
       commentsByPost.set(comment.post_id, (commentsByPost.get(comment.post_id) || 0) + 1);
     });
 
+    const { data: imagesData } = await supabase
+      .from("post_images")
+      .select("id, post_id, author_id, image_url, storage_path, position, created_at")
+      .in("post_id", postIds)
+      .order("position", { ascending: true })
+      .returns<PostImage[]>();
+
+    const imagesByPost = new Map<string, PostImage[]>();
+
+    imagesData?.forEach((image) => {
+      const currentImages = imagesByPost.get(image.post_id) || [];
+      imagesByPost.set(image.post_id, [...currentImages, image]);
+    });
+
     setPosts(
       loadedPosts.map((post) => ({
         ...post,
         likes_count: likesByPost.get(post.id) || 0,
         liked_by_me: likedPostIds.has(post.id),
         comments_count: commentsByPost.get(post.id) || 0,
+        images: imagesByPost.get(post.id) || [],
       }))
     );
     setIsLoading(false);

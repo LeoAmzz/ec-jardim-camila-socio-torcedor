@@ -17,6 +17,7 @@ export interface PostWithAuthor extends Post {
   likes_count: number;
   liked_by_me: boolean;
   comments_count: number;
+  images: PostImage[];
 }
 
 export interface PostLike {
@@ -37,4 +38,14 @@ export interface PostComment {
 
 export interface PostCommentWithAuthor extends PostComment {
   author: Pick<Profile, "id" | "full_name" | "username" | "avatar_url" | "email"> | null;
+}
+
+export interface PostImage {
+  id: string;
+  post_id: string;
+  author_id: string;
+  image_url: string;
+  storage_path: string;
+  position: number;
+  created_at: string;
 }
