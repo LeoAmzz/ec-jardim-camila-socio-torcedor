@@ -62,15 +62,15 @@ function PlanosContent() {
         },
         body: JSON.stringify({ planType: plan }),
       });
-      const data = await response.json() as { checkout_url?: string; message?: string };
+      const data = await response.json().catch(() => null) as { checkout_url?: string; message?: string } | null;
 
       if (!response.ok) {
-        setMessage(data.message || "Não foi possível preparar a assinatura agora.");
+        setMessage(data?.message || "Não foi possível preparar a assinatura agora.");
         return;
       }
 
-      if (!data.checkout_url) {
-        setMessage(data.message || "Checkout indisponível no momento.");
+      if (!data?.checkout_url) {
+        setMessage(data?.message || "Checkout indisponível no momento.");
         return;
       }
 

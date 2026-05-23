@@ -9,6 +9,33 @@ import type {
   MercadoPagoPreapprovalResponse,
 } from "@/lib/mercadopago/types";
 
+function isLocalUrl(url: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(url);
+}
+
+function sanitizeMercadoPagoError(errorBody: unknown) {
+  if (!errorBody || typeof errorBody !== "object") {
+    return errorBody;
+  }
+
+  return JSON.parse(
+    JSON.stringify(errorBody, (key, value) => {
+      const lowerKey = key.toLowerCase();
+
+      if (
+        lowerKey.includes("token") ||
+        lowerKey.includes("authorization") ||
+        lowerKey.includes("access") ||
+        lowerKey.includes("secret")
+      ) {
+        return "[redacted]";
+      }
+
+      return value;
+    })
+  );
+}
+
 export async function POST(request: Request) {
   let body: Partial<MembershipCheckoutRequest>;
 
@@ -22,6 +49,12 @@ export async function POST(request: Request) {
   }
 
   const planType = body.planType as PlanType | undefined;
+
+  console.info("Membership checkout request received", {
+    planType,
+    hasMercadoPagoAccessToken: Boolean(process.env.MERCADO_PAGO_ACCESS_TOKEN),
+    hasAppUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL),
+  });
 
   if (!planType || !getPlanByType(planType)) {
     return NextResponse.json(
@@ -100,44 +133,90 @@ export async function POST(request: Request) {
   }
 
   const reason = `Plano ${plan.name} - E.C. Jardim Camila`;
-  const mercadoPagoResponse = await fetch("https://api.mercadopago.com/preapproval", {
+  const isLocalAppUrl = isLocalUrl(appUrl);
+  const preapprovalPayload = {
+    reason,
+    payer_email: user.email,
+    external_reference: JSON.stringify({
+      origin: "membership",
+      user_id: user.id,
+      plan_type: planType,
+    }),
+    back_url: `${appUrl}/planos?checkout=success`,
+    ...(!isLocalAppUrl && {
+      notification_url: `${appUrl}/api/webhooks/mercadopago`,
+    }),
+    status: "pending",
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      transaction_amount: plan.price,
+      currency_id: "BRL",
+    },
+  };
+
+  console.info("Creating Mercado Pago preapproval", {
+    planType,
+    hasMercadoPagoAccessToken: Boolean(mercadoPagoAccessToken),
+    hasAppUrl: Boolean(appUrl),
+    isLocalAppUrl,
+    sendsBackUrl: Boolean(preapprovalPayload.back_url),
+    sendsNotificationUrl: "notification_url" in preapprovalPayload,
+  });
+
+  let mercadoPagoResponse: Response;
+
+  try {
+    mercadoPagoResponse = await fetch("https://api.mercadopago.com/preapproval", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${mercadoPagoAccessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      reason,
-      payer_email: user.email,
-      external_reference: JSON.stringify({
-        origin: "membership",
-        user_id: user.id,
-        plan_type: planType,
-      }),
-      back_url: `${appUrl}/planos?checkout=success`,
-      notification_url: `${appUrl}/api/webhooks/mercadopago`,
-      status: "pending",
-      auto_recurring: {
-        frequency: 1,
-        frequency_type: "months",
-        transaction_amount: plan.price,
-        currency_id: "BRL",
-      },
-    }),
-  });
+      body: JSON.stringify(preapprovalPayload),
+    });
+  } catch (error) {
+    console.error("Mercado Pago checkout request failed before response", {
+      planType,
+      error: error instanceof Error ? error.message : "Unknown fetch error",
+    });
 
-  const mercadoPagoData = await mercadoPagoResponse.json().catch(() => null) as MercadoPagoPreapprovalResponse | null;
+    return NextResponse.json(
+      { message: "Não foi possível conectar ao Mercado Pago agora." },
+      { status: 502 }
+    );
+  }
+
+  const mercadoPagoData = await mercadoPagoResponse.json().catch(() => null) as (MercadoPagoPreapprovalResponse & {
+    message?: string;
+    error?: string;
+    cause?: unknown;
+  }) | null;
   const checkoutUrl = mercadoPagoData?.init_point || mercadoPagoData?.sandbox_init_point;
+
+  console.info("Mercado Pago preapproval response", {
+    planType,
+    status: mercadoPagoResponse.status,
+    hasCheckoutUrl: Boolean(checkoutUrl),
+    mercadoPagoId: mercadoPagoData?.id || null,
+  });
 
   if (!mercadoPagoResponse.ok || !checkoutUrl || !mercadoPagoData?.id) {
     console.error("Mercado Pago checkout creation failed", {
       status: mercadoPagoResponse.status,
       planType,
       userId: user.id,
+      errorBody: sanitizeMercadoPagoError(mercadoPagoData),
     });
 
+    const mercadoPagoMessage = mercadoPagoData?.message || mercadoPagoData?.error;
+
     return NextResponse.json(
-      { message: "Não foi possível criar o checkout agora. Tente novamente em instantes." },
+      {
+        message: mercadoPagoMessage
+          ? `Mercado Pago rejeitou a requisição: ${mercadoPagoMessage}`
+          : "Mercado Pago rejeitou a requisição de checkout.",
+      },
       { status: 502 }
     );
   }
