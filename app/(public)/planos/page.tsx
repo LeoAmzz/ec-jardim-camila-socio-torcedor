@@ -4,7 +4,8 @@ import { CheckCircle2, Shield, Shirt, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { AuthProvider, useAuth } from "@/components/auth/AuthProvider";
-import type { PlanType } from "@/lib/types/profile";
+import { isPaidPlan } from "@/lib/plans";
+import type { PlanType } from "@/lib/types/membership";
 
 export default function PlanosPage() {
   return (
@@ -17,13 +18,14 @@ export default function PlanosPage() {
 function PlanosContent() {
   const { user, profile, profileLoading } = useAuth();
   const [message, setMessage] = useState<string | null>(null);
+  const [isPreparingCheckout, setIsPreparingCheckout] = useState<PlanType | null>(null);
   const currentPlan = profile?.plan_type || "torcedor";
 
   function isCurrentPlan(plan: PlanType) {
     return Boolean(user) && currentPlan === plan;
   }
 
-  function handleChoosePlan(plan: PlanType) {
+  async function handleChoosePlan(plan: PlanType) {
     if (!user) {
       setMessage("Crie sua conta ou faça login para escolher um plano.");
       return;
@@ -33,7 +35,30 @@ function PlanosContent() {
       return;
     }
 
-    setMessage("Em breve você será redirecionado para o pagamento.");
+    if (!isPaidPlan(plan)) {
+      setMessage("O plano Torcedor é gratuito e não precisa de checkout.");
+      return;
+    }
+
+    setIsPreparingCheckout(plan);
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/checkout/membership", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ planType: plan }),
+      });
+      const data = await response.json() as { message?: string };
+
+      setMessage(data.message || "Em breve você será redirecionado para o pagamento.");
+    } catch {
+      setMessage("Não foi possível preparar a assinatura agora. Tente novamente em instantes.");
+    } finally {
+      setIsPreparingCheckout(null);
+    }
   }
 
   return (
@@ -82,7 +107,7 @@ function PlanosContent() {
               <button
                 type="button"
                 onClick={() => handleChoosePlan("torcedor")}
-                disabled={isCurrentPlan("torcedor") || profileLoading}
+                disabled={isCurrentPlan("torcedor") || profileLoading || isPreparingCheckout !== null}
                 className="w-full py-3 rounded-lg font-bold border border-primary text-primary hover:bg-primary/10 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isCurrentPlan("torcedor") ? "Plano atual" : "Selecionar plano"}
@@ -121,10 +146,10 @@ function PlanosContent() {
               <button
                 type="button"
                 onClick={() => handleChoosePlan("camisa")}
-                disabled={isCurrentPlan("camisa") || profileLoading}
+                disabled={isCurrentPlan("camisa") || profileLoading || isPreparingCheckout !== null}
                 className="w-full py-3 rounded-lg font-bold bg-accent text-bg-dark hover:bg-accent-dark transition-colors shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {isCurrentPlan("camisa") ? "Plano atual" : "Assinar em breve"}
+                {isCurrentPlan("camisa") ? "Plano atual" : isPreparingCheckout === "camisa" ? "Preparando..." : "Preparar assinatura"}
               </button>
             )}
           </div>
@@ -162,10 +187,10 @@ function PlanosContent() {
               <button
                 type="button"
                 onClick={() => handleChoosePlan("campeao")}
-                disabled={isCurrentPlan("campeao") || profileLoading}
+                disabled={isCurrentPlan("campeao") || profileLoading || isPreparingCheckout !== null}
                 className="w-full py-3 rounded-lg font-bold bg-primary text-white hover:bg-primary-light transition-colors shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {isCurrentPlan("campeao") ? "Plano atual" : "Assinar em breve"}
+                {isCurrentPlan("campeao") ? "Plano atual" : isPreparingCheckout === "campeao" ? "Preparando..." : "Preparar assinatura"}
               </button>
             )}
           </div>
