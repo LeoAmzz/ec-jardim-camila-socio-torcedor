@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CreatePost } from "@/components/feed/CreatePost";
 import { PostCard } from "@/components/feed/PostCard";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -14,13 +14,17 @@ type Tab = "ultimas" | "alta" | "exclusivo";
 
 export default function HomePage() {
   const { user } = useAuth();
+  const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("ultimas");
   const [posts, setPosts] = useState<PostWithAuthor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  async function loadPosts() {
-    setIsLoading(true);
+  const loadPosts = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setIsLoading(true);
+    }
+
     setErrorMessage(null);
 
     const { data, error } = await supabase
@@ -47,7 +51,10 @@ export default function HomePage() {
 
     if (error) {
       setPosts([]);
-      setIsLoading(false);
+      if (!options?.silent) {
+        setIsLoading(false);
+      }
+
       setErrorMessage(
         error.code === "42P01"
           ? "A tabela posts ainda não foi criada no Supabase. Aplique a migration de posts para começar."
@@ -61,7 +68,10 @@ export default function HomePage() {
 
     if (postIds.length === 0) {
       setPosts([]);
-      setIsLoading(false);
+      if (!options?.silent) {
+        setIsLoading(false);
+      }
+
       return;
     }
 
@@ -118,11 +128,39 @@ export default function HomePage() {
       }))
     );
     setIsLoading(false);
-  }
+  }, [user?.id]);
 
   useEffect(() => {
     void loadPosts();
-  }, [user?.id]);
+  }, [loadPosts]);
+
+  useEffect(() => {
+    function scheduleFeedRefresh() {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        void loadPosts({ silent: true });
+      }, 500);
+    }
+
+    const channel = supabase
+      .channel("feed-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, scheduleFeedRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, scheduleFeedRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_comments" }, scheduleFeedRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_images" }, scheduleFeedRefresh)
+      .subscribe();
+
+    return () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+
+      void supabase.removeChannel(channel);
+    };
+  }, [loadPosts]);
 
   return (
     <div className="space-y-6">
