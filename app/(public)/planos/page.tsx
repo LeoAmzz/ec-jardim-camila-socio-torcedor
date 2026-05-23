@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AuthProvider, useAuth } from "@/components/auth/AuthProvider";
 import { isPaidPlan } from "@/lib/plans";
+import { supabase } from "@/lib/supabase/client";
 import type { PlanType } from "@/lib/types/membership";
 
 export default function PlanosPage() {
@@ -44,16 +45,36 @@ function PlanosContent() {
     setMessage(null);
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setMessage("Sua sessão expirou. Faça login novamente para continuar.");
+        return;
+      }
+
       const response = await fetch("/api/checkout/membership", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ planType: plan }),
       });
-      const data = await response.json() as { message?: string };
+      const data = await response.json() as { checkout_url?: string; message?: string };
 
-      setMessage(data.message || "Em breve você será redirecionado para o pagamento.");
+      if (!response.ok) {
+        setMessage(data.message || "Não foi possível preparar a assinatura agora.");
+        return;
+      }
+
+      if (!data.checkout_url) {
+        setMessage(data.message || "Checkout indisponível no momento.");
+        return;
+      }
+
+      window.location.href = data.checkout_url;
     } catch {
       setMessage("Não foi possível preparar a assinatura agora. Tente novamente em instantes.");
     } finally {

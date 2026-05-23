@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getMercadoPagoAccessToken, getPublicAppUrl } from "@/lib/mercadopago/config";
 import { getPlanByType, isPaidPlan } from "@/lib/plans";
 import type { PlanType } from "@/lib/types/membership";
 import type {
-  MembershipCheckoutPlaceholderResponse,
+  MembershipCheckoutResponse,
   MembershipCheckoutRequest,
+  MercadoPagoPreapprovalResponse,
 } from "@/lib/mercadopago/types";
 
 export async function POST(request: Request) {
@@ -34,8 +37,115 @@ export async function POST(request: Request) {
     );
   }
 
-  const response: MembershipCheckoutPlaceholderResponse = {
-    message: "Checkout Mercado Pago será ativado na próxima fase",
+  const authorization = request.headers.get("authorization");
+  const accessToken = authorization?.startsWith("Bearer ")
+    ? authorization.replace("Bearer ", "").trim()
+    : null;
+
+  if (!accessToken) {
+    return NextResponse.json(
+      { message: "Faça login para continuar." },
+      { status: 401 }
+    );
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return NextResponse.json(
+      { message: "Configuração do Supabase ausente no servidor." },
+      { status: 500 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(accessToken);
+
+  if (userError || !user?.email) {
+    return NextResponse.json(
+      { message: "Sessão inválida ou expirada. Faça login novamente." },
+      { status: 401 }
+    );
+  }
+
+  const plan = getPlanByType(planType);
+
+  if (!plan || !isPaidPlan(plan.type)) {
+    return NextResponse.json(
+      { message: "Plano inválido para checkout." },
+      { status: 400 }
+    );
+  }
+
+  let mercadoPagoAccessToken: string;
+  let appUrl: string;
+
+  try {
+    mercadoPagoAccessToken = getMercadoPagoAccessToken();
+    appUrl = getPublicAppUrl();
+  } catch {
+    return NextResponse.json(
+      { message: "Checkout ainda não está configurado no servidor." },
+      { status: 500 }
+    );
+  }
+
+  const reason = `Plano ${plan.name} - E.C. Jardim Camila`;
+  const mercadoPagoResponse = await fetch("https://api.mercadopago.com/preapproval", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${mercadoPagoAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      reason,
+      payer_email: user.email,
+      external_reference: JSON.stringify({
+        origin: "membership",
+        user_id: user.id,
+        plan_type: planType,
+      }),
+      back_url: `${appUrl}/planos?checkout=success`,
+      notification_url: `${appUrl}/api/webhooks/mercadopago`,
+      status: "pending",
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: "months",
+        transaction_amount: plan.price,
+        currency_id: "BRL",
+      },
+    }),
+  });
+
+  const mercadoPagoData = await mercadoPagoResponse.json().catch(() => null) as MercadoPagoPreapprovalResponse | null;
+  const checkoutUrl = mercadoPagoData?.init_point || mercadoPagoData?.sandbox_init_point;
+
+  if (!mercadoPagoResponse.ok || !checkoutUrl || !mercadoPagoData?.id) {
+    console.error("Mercado Pago checkout creation failed", {
+      status: mercadoPagoResponse.status,
+      planType,
+      userId: user.id,
+    });
+
+    return NextResponse.json(
+      { message: "Não foi possível criar o checkout agora. Tente novamente em instantes." },
+      { status: 502 }
+    );
+  }
+
+  const response: MembershipCheckoutResponse = {
+    message: "Checkout Mercado Pago criado com sucesso.",
+    checkout_url: checkoutUrl,
+    mercado_pago_id: mercadoPagoData.id,
     planType,
   };
 
