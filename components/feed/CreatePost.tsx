@@ -37,6 +37,7 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
   const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
   const maxImageSize = 5 * 1024 * 1024;
   const maxImages = 5;
+  const canCreateExclusive = profile?.plan_type === "camisa" || profile?.plan_type === "campeao";
 
   useEffect(() => {
     if (imageFiles.length === 0) {
@@ -164,11 +165,13 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
     setIsPosting(true);
     setMessage(null);
 
+    const safeVisibility = canCreateExclusive ? visibility : "public";
+
     const { data: createdPost, error } = await supabase.from("posts").insert({
       author_id: user.id,
       content: trimmedContent,
       image_url: null,
-      visibility,
+      visibility: safeVisibility,
     }).select("id").single();
 
     if (error) {
@@ -182,6 +185,11 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
 
       if (error.code === "23503") {
         setMessage("Seu profile ainda não foi encontrado. Recarregue a página e tente novamente.");
+        return;
+      }
+
+      if (error.code === "42501" || error.code === "PGRST301") {
+        setMessage("Conteúdo exclusivo disponível apenas para sócios Camisa e Campeão.");
         return;
       }
 
@@ -307,8 +315,16 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
         </button>
         <button
           type="button"
-          onClick={() => setVisibility("exclusive")}
-          disabled={isPosting}
+          onClick={() => {
+            if (!canCreateExclusive) {
+              setMessageType("error");
+              setMessage("Disponível para sócios Camisa e Campeão.");
+              return;
+            }
+
+            setVisibility("exclusive");
+          }}
+          disabled={isPosting || !canCreateExclusive}
           className={`rounded-full border px-3 py-1.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
             visibility === "exclusive"
               ? "border-accent bg-accent text-bg-dark"
@@ -317,6 +333,11 @@ export function CreatePost({ onPostCreated }: CreatePostProps) {
         >
           Exclusivo para sócios
         </button>
+        {!canCreateExclusive && (
+          <span className="self-center text-xs font-semibold text-muted-foreground">
+            Disponível para sócios Camisa e Campeão
+          </span>
+        )}
       </div>
       <div className="flex items-center justify-between mt-3 pl-[52px]">
         <input
