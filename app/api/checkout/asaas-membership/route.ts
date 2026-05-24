@@ -12,6 +12,13 @@ import type {
 import { getPlanByType, isPaidPlan } from "@/lib/plans";
 import type { PlanType } from "@/lib/types/membership";
 
+type AsaasErrorBody = {
+  errors?: Array<{
+    code?: string;
+    description?: string;
+  }>;
+};
+
 function getNextDueDate() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -36,9 +43,21 @@ function sanitizeAsaasError(errorBody: unknown) {
   );
 }
 
+function getAsaasErrorDescriptions(errorBody: AsaasErrorBody | null) {
+  return errorBody?.errors?.map((error) => ({
+    code: error.code,
+    description: error.description,
+  })) || [];
+}
+
+function getPrimaryAsaasErrorDescription(errorBody: AsaasErrorBody | null) {
+  return errorBody?.errors?.find((error) => error.description)?.description;
+}
+
 function createAsaasHeaders(apiKey: string) {
   return {
-    "Content-Type": "application/json",
+    accept: "application/json",
+    "content-type": "application/json",
     "User-Agent": "CamilaFC/1.0",
     access_token: apiKey,
   };
@@ -50,6 +69,7 @@ async function findOrCreateCustomer(params: {
   email: string;
   name: string;
   userId: string;
+  cpfCnpj: string;
 }) {
   const headers = createAsaasHeaders(params.apiKey);
   const searchResponse = await fetch(`${params.baseUrl}/customers?email=${encodeURIComponent(params.email)}`, {
@@ -68,20 +88,21 @@ async function findOrCreateCustomer(params: {
     body: JSON.stringify({
       name: params.name,
       email: params.email,
+      cpfCnpj: params.cpfCnpj,
       externalReference: params.userId,
       notificationDisabled: false,
     }),
   });
-  const customer = await createResponse.json().catch(() => null) as (AsaasCustomer & {
-    errors?: unknown;
-  }) | null;
+  const customer = await createResponse.json().catch(() => null) as (AsaasCustomer & AsaasErrorBody) | null;
 
   if (!createResponse.ok || !customer?.id) {
     console.error("Asaas customer creation failed", {
+      endpoint: "/customers",
       status: createResponse.status,
+      errors: getAsaasErrorDescriptions(customer),
       errorBody: sanitizeAsaasError(customer),
     });
-    throw new Error("Não foi possível criar o cliente no Asaas.");
+    throw new Error(getPrimaryAsaasErrorDescription(customer) || "Não foi possível criar o cliente no Asaas.");
   }
 
   return customer;
@@ -168,6 +189,7 @@ export async function POST(request: Request) {
 
   let asaasApiKey: string;
   let asaasBaseUrl: string;
+  const asaasEnv = process.env.ASAAS_ENV || "sandbox";
 
   try {
     asaasApiKey = getAsaasApiKey();
@@ -179,12 +201,50 @@ export async function POST(request: Request) {
     );
   }
 
+  if (asaasEnv === "sandbox" && !asaasApiKey.startsWith("$aact_hmlg_")) {
+    return NextResponse.json(
+      { message: "A chave Asaas não parece ser de sandbox." },
+      { status: 500 }
+    );
+  }
+
+  if (asaasEnv === "production" && !asaasApiKey.startsWith("$aact_prod_")) {
+    return NextResponse.json(
+      { message: "A chave Asaas não parece ser de produção." },
+      { status: 500 }
+    );
+  }
+
   const userMetadata = user.user_metadata;
   const customerName =
     typeof userMetadata?.full_name === "string" && userMetadata.full_name.trim()
       ? userMetadata.full_name
       : user.email.split("@")[0];
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const cpfCnpj = asaasEnv === "sandbox"
+    ? process.env.ASAAS_TEST_CUSTOMER_CPF_CNPJ
+    : null;
+
+  if (asaasEnv === "sandbox" && !cpfCnpj) {
+    return NextResponse.json(
+      { message: "Configure ASAAS_TEST_CUSTOMER_CPF_CNPJ para testar no sandbox." },
+      { status: 500 }
+    );
+  }
+
+  if (asaasEnv === "production") {
+    return NextResponse.json(
+      { message: "Para assinar, será necessário informar CPF/CNPJ." },
+      { status: 400 }
+    );
+  }
+
+  if (!cpfCnpj) {
+    return NextResponse.json(
+      { message: "Configure ASAAS_TEST_CUSTOMER_CPF_CNPJ para testar no sandbox." },
+      { status: 500 }
+    );
+  }
 
   try {
     const customer = await findOrCreateCustomer({
@@ -193,6 +253,7 @@ export async function POST(request: Request) {
       email: user.email,
       name: customerName,
       userId: user.id,
+      cpfCnpj,
     });
     const subscriptionResponse = await fetch(`${asaasBaseUrl}/subscriptions`, {
       method: "POST",
@@ -217,20 +278,24 @@ export async function POST(request: Request) {
         }),
       }),
     });
-    const subscription = await subscriptionResponse.json().catch(() => null) as (AsaasSubscription & {
-      errors?: unknown;
-    }) | null;
+    const subscription = await subscriptionResponse.json().catch(() => null) as (AsaasSubscription & AsaasErrorBody) | null;
 
     if (!subscriptionResponse.ok || !subscription?.id) {
       console.error("Asaas subscription creation failed", {
+        endpoint: "/subscriptions",
         status: subscriptionResponse.status,
         planType,
         userId: user.id,
+        errors: getAsaasErrorDescriptions(subscription),
         errorBody: sanitizeAsaasError(subscription),
       });
 
       return NextResponse.json(
-        { message: "Asaas rejeitou a criação da assinatura." },
+        {
+          message: getPrimaryAsaasErrorDescription(subscription)
+            ? `Asaas rejeitou: ${getPrimaryAsaasErrorDescription(subscription)}`
+            : "Asaas rejeitou a criação da assinatura.",
+        },
         { status: 502 }
       );
     }
@@ -268,7 +333,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { message: "Não foi possível preparar a assinatura no Asaas agora." },
+      { message: error instanceof Error ? `Asaas rejeitou: ${error.message}` : "Não foi possível preparar a assinatura no Asaas agora." },
       { status: 502 }
     );
   }

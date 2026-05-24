@@ -15,7 +15,7 @@ export function getAsaasBaseUrl() {
     return "https://api.asaas.com/v3";
   }
 
-  return "https://sandbox.asaas.com/api/v3";
+  return "https://api-sandbox.asaas.com/v3";
 }
 
 export function getAsaasWebhookToken() {
