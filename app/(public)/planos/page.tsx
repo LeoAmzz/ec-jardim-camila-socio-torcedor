@@ -54,7 +54,7 @@ function PlanosContent() {
         return;
       }
 
-      const response = await fetch("/api/checkout/membership", {
+      const response = await fetch("/api/checkout/asaas-membership", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
