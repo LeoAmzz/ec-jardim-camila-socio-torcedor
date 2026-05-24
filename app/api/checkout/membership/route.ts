@@ -132,11 +132,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const isMercadoPagoTestMode = mercadoPagoAccessToken.startsWith("TEST");
+  const payerEmail = isMercadoPagoTestMode
+    ? process.env.MERCADO_PAGO_TEST_PAYER_EMAIL
+    : user.email;
+
+  if (!payerEmail) {
+    return NextResponse.json(
+      { message: "MERCADO_PAGO_TEST_PAYER_EMAIL não configurado." },
+      { status: 500 }
+    );
+  }
+
   const reason = `Plano ${plan.name} - E.C. Jardim Camila`;
   const isLocalAppUrl = isLocalUrl(appUrl);
   const preapprovalPayload = {
     reason,
-    payer_email: user.email,
+    payer_email: payerEmail,
     external_reference: JSON.stringify({
       origin: "membership",
       user_id: user.id,
@@ -158,6 +170,8 @@ export async function POST(request: Request) {
   console.info("Creating Mercado Pago preapproval", {
     planType,
     hasMercadoPagoAccessToken: Boolean(mercadoPagoAccessToken),
+    isMercadoPagoTestMode,
+    hasTestPayerEmail: Boolean(process.env.MERCADO_PAGO_TEST_PAYER_EMAIL),
     hasAppUrl: Boolean(appUrl),
     isLocalAppUrl,
     sendsBackUrl: Boolean(preapprovalPayload.back_url),
