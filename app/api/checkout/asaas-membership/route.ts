@@ -79,7 +79,29 @@ async function findOrCreateCustomer(params: {
   const existingCustomer = searchData?.data?.[0];
 
   if (existingCustomer?.id) {
-    return existingCustomer;
+    const updateResponse = await fetch(`${params.baseUrl}/customers/${existingCustomer.id}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: existingCustomer.name || params.name,
+        email: existingCustomer.email || params.email,
+        cpfCnpj: params.cpfCnpj,
+        externalReference: params.userId,
+      }),
+    });
+    const updatedCustomer = await updateResponse.json().catch(() => null) as (AsaasCustomer & AsaasErrorBody) | null;
+
+    if (!updateResponse.ok || !updatedCustomer?.id) {
+      console.error("Asaas customer update failed", {
+        endpoint: "/customers/{id}",
+        status: updateResponse.status,
+        errors: getAsaasErrorDescriptions(updatedCustomer),
+        errorBody: sanitizeAsaasError(updatedCustomer),
+      });
+      throw new Error(getPrimaryAsaasErrorDescription(updatedCustomer) || "Não foi possível atualizar o CPF/CNPJ do cliente no Asaas.");
+    }
+
+    return updatedCustomer;
   }
 
   const createResponse = await fetch(`${params.baseUrl}/customers`, {
