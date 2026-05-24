@@ -171,22 +171,29 @@ export async function POST(request: Request) {
     planType,
     hasMercadoPagoAccessToken: Boolean(mercadoPagoAccessToken),
     isMercadoPagoTestMode,
+    payerEmailMode: isMercadoPagoTestMode ? "test" : "real",
     hasTestPayerEmail: Boolean(process.env.MERCADO_PAGO_TEST_PAYER_EMAIL),
     hasAppUrl: Boolean(appUrl),
     isLocalAppUrl,
+    hasStageHeader: isMercadoPagoTestMode,
     sendsBackUrl: Boolean(preapprovalPayload.back_url),
     sendsNotificationUrl: "notification_url" in preapprovalPayload,
   });
 
   let mercadoPagoResponse: Response;
+  const mercadoPagoHeaders: Record<string, string> = {
+    Authorization: `Bearer ${mercadoPagoAccessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  if (isMercadoPagoTestMode) {
+    mercadoPagoHeaders["X-scope"] = "stage";
+  }
 
   try {
     mercadoPagoResponse = await fetch("https://api.mercadopago.com/preapproval", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${mercadoPagoAccessToken}`,
-      "Content-Type": "application/json",
-    },
+      method: "POST",
+      headers: mercadoPagoHeaders,
       body: JSON.stringify(preapprovalPayload),
     });
   } catch (error) {
