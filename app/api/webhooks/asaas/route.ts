@@ -141,6 +141,18 @@ async function activateMembership(params: {
   }
 }
 
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    provider: "asaas",
+    message: "Webhook endpoint active",
+  });
+}
+
+export async function HEAD() {
+  return new Response(null, { status: 200 });
+}
+
 export async function POST(request: Request) {
   const configuredToken = getAsaasWebhookToken();
   const asaasEnv = process.env.ASAAS_ENV || "sandbox";
@@ -149,13 +161,19 @@ export async function POST(request: Request) {
     const receivedToken = getWebhookToken(request);
 
     if (receivedToken !== configuredToken) {
-      console.warn("Asaas webhook rejected: invalid token");
+      console.warn("Asaas webhook rejected: invalid token", {
+        method: request.method,
+      });
       return NextResponse.json({ received: false }, { status: 401 });
     }
   } else if (asaasEnv === "sandbox") {
-    console.warn("Asaas webhook running without ASAAS_WEBHOOK_TOKEN in sandbox.");
+    console.warn("Asaas webhook running without ASAAS_WEBHOOK_TOKEN in sandbox.", {
+      method: request.method,
+    });
   } else {
-    console.warn("Asaas webhook rejected: ASAAS_WEBHOOK_TOKEN is not configured.");
+    console.warn("Asaas webhook rejected: ASAAS_WEBHOOK_TOKEN is not configured.", {
+      method: request.method,
+    });
     return NextResponse.json({ received: false }, { status: 401 });
   }
 
@@ -164,7 +182,10 @@ export async function POST(request: Request) {
   try {
     event = await request.json();
   } catch {
-    console.info("Asaas webhook ignored: invalid JSON body");
+    console.info("Asaas webhook ignored: invalid JSON body", {
+      method: request.method,
+      result: "ignored",
+    });
     return NextResponse.json({ received: true, ignored: true });
   }
 
@@ -172,19 +193,23 @@ export async function POST(request: Request) {
   const subscriptionId = event.payment?.subscription || event.subscription?.id || null;
 
   console.info("Asaas webhook received", {
+    method: request.method,
     event: eventName,
     paymentId: event.payment?.id || null,
     subscriptionId,
-    paymentStatus: event.payment?.status || null,
+    status: event.payment?.status || event.subscription?.status || null,
     paymentValue: event.payment?.value || null,
   });
 
   if (!PLAN_ACTIVATION_EVENTS.has(eventName)) {
     if (IGNORED_PAYMENT_EVENTS.has(eventName) || eventName.startsWith("SUBSCRIPTION_")) {
       console.info("Asaas webhook ignored safely", {
+        method: request.method,
         event: eventName,
         paymentId: event.payment?.id || null,
         subscriptionId,
+        status: event.payment?.status || event.subscription?.status || null,
+        result: "ignored",
       });
     }
 
@@ -193,8 +218,11 @@ export async function POST(request: Request) {
 
   if (!subscriptionId) {
     console.warn("Asaas webhook ignored: missing subscription id", {
+      method: request.method,
       event: eventName,
       paymentId: event.payment?.id || null,
+      status: event.payment?.status || event.subscription?.status || null,
+      result: "ignored",
     });
     return NextResponse.json({ received: true, ignored: true });
   }
@@ -203,21 +231,27 @@ export async function POST(request: Request) {
 
   if (!reference?.user_id || !isPaidPlanType(reference.plan_type)) {
     console.warn("Asaas webhook ignored: invalid membership reference", {
+      method: request.method,
       event: eventName,
       paymentId: event.payment?.id || null,
       subscriptionId,
+      status: event.payment?.status || event.subscription?.status || null,
       hasUserId: Boolean(reference?.user_id),
       planType: reference?.plan_type || null,
+      result: "ignored",
     });
     return NextResponse.json({ received: true, ignored: true });
   }
 
   if (reference.provider && reference.provider !== "asaas") {
     console.warn("Asaas webhook ignored: invalid provider reference", {
+      method: request.method,
       event: eventName,
       paymentId: event.payment?.id || null,
       subscriptionId,
+      status: event.payment?.status || event.subscription?.status || null,
       provider: reference.provider,
+      result: "ignored",
     });
     return NextResponse.json({ received: true, ignored: true });
   }
@@ -231,21 +265,27 @@ export async function POST(request: Request) {
     });
 
     console.info("Asaas membership activated", {
+      method: request.method,
       event: eventName,
       paymentId: event.payment?.id || null,
       subscriptionId,
+      status: event.payment?.status || event.subscription?.status || null,
       userId: reference.user_id,
       planType: reference.plan_type,
+      result: "updated",
     });
 
     return NextResponse.json({ received: true, updated: true });
   } catch (error) {
     console.error("Asaas webhook update failed", {
+      method: request.method,
       event: eventName,
       paymentId: event.payment?.id || null,
       subscriptionId,
+      status: event.payment?.status || event.subscription?.status || null,
       userId: reference.user_id,
       planType: reference.plan_type,
+      result: "failed",
       error: error instanceof Error ? error.message : "Unknown error",
     });
 
