@@ -132,7 +132,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const isMercadoPagoTestMode = mercadoPagoAccessToken.startsWith("TEST");
+  const mercadoPagoEnv = process.env.MERCADO_PAGO_ENV;
+  const isTestCredential = mercadoPagoAccessToken.startsWith("TEST");
+  const isMercadoPagoTestMode = mercadoPagoEnv === "test" || isTestCredential;
   const payerEmail = isMercadoPagoTestMode
     ? process.env.MERCADO_PAGO_TEST_PAYER_EMAIL
     : user.email;
@@ -171,11 +173,13 @@ export async function POST(request: Request) {
     planType,
     hasMercadoPagoAccessToken: Boolean(mercadoPagoAccessToken),
     isMercadoPagoTestMode,
+    isTestCredential,
+    mercadoPagoEnv: mercadoPagoEnv || "unset",
     payerEmailMode: isMercadoPagoTestMode ? "test" : "real",
     hasTestPayerEmail: Boolean(process.env.MERCADO_PAGO_TEST_PAYER_EMAIL),
     hasAppUrl: Boolean(appUrl),
     isLocalAppUrl,
-    hasStageHeader: isMercadoPagoTestMode,
+    hasStageHeader: isTestCredential,
     sendsBackUrl: Boolean(preapprovalPayload.back_url),
     sendsNotificationUrl: "notification_url" in preapprovalPayload,
   });
@@ -186,7 +190,7 @@ export async function POST(request: Request) {
     "Content-Type": "application/json",
   };
 
-  if (isMercadoPagoTestMode) {
+  if (isTestCredential) {
     mercadoPagoHeaders["X-scope"] = "stage";
   }
 
