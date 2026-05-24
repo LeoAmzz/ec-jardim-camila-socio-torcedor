@@ -24,6 +24,10 @@ export interface AsaasCustomerListResponse {
 
 export interface AsaasSubscription {
   id: string;
+  status?: string;
+  description?: string;
+  value?: number;
+  externalReference?: string;
   invoiceUrl?: string;
   paymentLink?: string;
   bankSlipUrl?: string;
@@ -44,8 +48,11 @@ export interface AsaasWebhookEvent {
   event?: string;
   payment?: {
     id?: string;
+    customer?: string;
     subscription?: string;
     status?: string;
+    value?: number;
+    invoiceUrl?: string;
     externalReference?: string;
   };
   subscription?: {
