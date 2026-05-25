@@ -26,9 +26,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [isSuccessMessage, setIsSuccessMessage] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+    const confirmed = new URLSearchParams(window.location.search).get("confirmed");
+
+    if (confirmed === "true") {
+      setIsSuccessMessage(true);
+      setMessage("E-mail confirmado com sucesso. Agora você já pode entrar.");
+    }
 
     async function redirectIfLoggedIn() {
       const {
@@ -55,6 +62,7 @@ export default function LoginPage() {
     }
 
     setMessage(null);
+    setIsSuccessMessage(false);
     setIsLoading(true);
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -87,7 +95,13 @@ export default function LoginPage() {
         </div>
 
         {message && (
-          <div className="mb-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+          <div
+            className={`mb-4 rounded-lg border p-3 text-sm ${
+              isSuccessMessage
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-danger/30 bg-danger/10 text-danger"
+            }`}
+          >
             {message}
           </div>
         )}

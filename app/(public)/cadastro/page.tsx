@@ -94,6 +94,7 @@ export default function CadastroPage() {
       email: email.trim(),
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/login?confirmed=true`,
         data: {
           full_name: fullName.trim(),
           username: buildUsername(fullName, email),
