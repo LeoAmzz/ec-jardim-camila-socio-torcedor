@@ -455,8 +455,12 @@ export default function BolaoPage() {
 
           <div className="space-y-4">
             {matches.map((match) => {
-              const draft = scores[match.id] || { home: "0", away: "0" };
               const prediction = predictionsByMatch[match.id];
+              const draft = prediction
+                ? { home: String(prediction.home_score), away: String(prediction.away_score) }
+                : match.status === "finished"
+                  ? { home: "", away: "" }
+                  : scores[match.id] || { home: "0", away: "0" };
               const deadlinePassed = new Date(match.prediction_deadline).getTime() <= Date.now();
               const canEdit = !deadlinePassed && (match.status === "scheduled" || match.status === "open");
               const homeName = match.home_team?.short_name || match.home_team?.name || "Mandante";
@@ -525,6 +529,9 @@ export default function BolaoPage() {
                             Total: <span className="font-bold text-accent">{prediction.points_total}</span>
                           </p>
                         )}
+                        {!prediction && (
+                          <p className="mt-1 font-semibold text-muted-foreground">Sem palpite</p>
+                        )}
                       </div>
                     )}
 
@@ -537,16 +544,18 @@ export default function BolaoPage() {
                     )}
                   </div>
 
-                  <div className="px-4 py-3 bg-card border-t border-border">
-                    <button
-                      type="button"
-                      onClick={() => savePrediction(match)}
-                      disabled={!canEdit || savingMatchId === match.id}
-                      className="w-full bg-primary hover:bg-primary-light text-white font-bold py-3 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {savingMatchId === match.id ? "SALVANDO..." : prediction ? "ATUALIZAR PALPITE" : "SALVAR PALPITE"}
-                    </button>
-                  </div>
+                  {match.status !== "finished" && (
+                    <div className="px-4 py-3 bg-card border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => savePrediction(match)}
+                        disabled={!canEdit || savingMatchId === match.id}
+                        className="w-full bg-primary hover:bg-primary-light text-white font-bold py-3 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingMatchId === match.id ? "SALVANDO..." : prediction ? "ATUALIZAR PALPITE" : "SALVAR PALPITE"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
