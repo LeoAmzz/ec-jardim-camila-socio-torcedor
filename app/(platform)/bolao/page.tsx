@@ -1,21 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MOCK_POOL } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { ShieldCheck, Info } from "lucide-react";
 import { Badge } from "@/components/shared/Badge";
 import { Avatar } from "@/components/shared/Avatar";
+import { supabase } from "@/lib/supabase/client";
+import type { BolaoCompetition } from "@/lib/types/bolao";
 
 type Tab = "palpitar" | "ranking_assinantes" | "ranking_geral";
 
 export default function BolaoPage() {
   const [activeTab, setActiveTab] = useState<Tab>("palpitar");
+  const [competitions, setCompetitions] = useState<BolaoCompetition[]>([]);
+  const [competitionsLoading, setCompetitionsLoading] = useState(true);
+  const [competitionsError, setCompetitionsError] = useState<string | null>(null);
 
   const [scores, setScores] = useState<Record<string, {home: number, away: number}>>({
     'm1': { home: 2, away: 1 },
     'm2': { home: 0, away: 0 }
   });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCompetitions() {
+      setCompetitionsLoading(true);
+      setCompetitionsError(null);
+
+      const { data, error } = await supabase
+        .from("bolao_competitions")
+        .select("*")
+        .neq("status", "archived")
+        .order("starts_at", { ascending: true, nullsFirst: false })
+        .returns<BolaoCompetition[]>();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setCompetitions([]);
+        setCompetitionsError("Não foi possível carregar os bolões agora.");
+      } else {
+        setCompetitions(data || []);
+      }
+
+      setCompetitionsLoading(false);
+    }
+
+    void loadCompetitions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const updateScore = (matchId: string, team: 'home' | 'away', delta: number) => {
     setScores(prev => {
@@ -58,6 +98,46 @@ export default function BolaoPage() {
 
       {activeTab === "palpitar" && (
         <>
+          <div className="bg-card border border-border rounded-xl p-4 md:p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Competições</p>
+                <h2 className="text-xl font-black text-foreground">Bolões disponíveis</h2>
+              </div>
+              {competitionsLoading && (
+                <span className="text-sm text-muted-foreground">Carregando...</span>
+              )}
+            </div>
+
+            {!competitionsLoading && competitionsError && (
+              <p className="mt-4 text-sm font-semibold text-danger">{competitionsError}</p>
+            )}
+
+            {!competitionsLoading && !competitionsError && competitions.length === 0 && (
+              <p className="mt-4 text-sm text-muted-foreground">Nenhum bolão disponível no momento.</p>
+            )}
+
+            {!competitionsLoading && competitions.length > 0 && (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {competitions.map((competition) => (
+                  <div key={competition.id} className="rounded-lg border border-border bg-background p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-foreground">{competition.name}</p>
+                        {competition.description && (
+                          <p className="mt-1 text-sm text-muted-foreground">{competition.description}</p>
+                        )}
+                      </div>
+                      <Badge variant={competition.subscribers_only ? "yellow" : "green"}>
+                        {competition.subscribers_only ? "Sócios" : "Aberto"}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="bg-card border border-border rounded-xl p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center divide-y md:divide-y-0 md:divide-x divide-border">
             <div className="py-2 md:py-0">
               <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Pontuação Total</p>
