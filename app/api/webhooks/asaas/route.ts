@@ -180,6 +180,13 @@ async function updateMembershipStatus(params: {
   const userId = params.userId || existingMembership?.user_id;
   const planType = params.planType || existingMembership?.plan_type;
 
+  if (!userId || !isPaidPlanType(planType)) {
+    return {
+      membershipFound: false,
+      profileUpdated: false,
+    };
+  }
+
   if (userId && isPaidPlanType(planType)) {
     const { error: membershipError } = await supabase
       .from("memberships")
@@ -200,20 +207,6 @@ async function updateMembershipStatus(params: {
     if (membershipError) {
       throw new Error(`membership_status_upsert_failed: ${membershipError.message}`);
     }
-  } else {
-    const { error: membershipError } = await supabase
-      .from("memberships")
-      .update({
-        status: params.status,
-        raw_status: params.rawStatus || null,
-        ended_at: params.downgradeToFree ? now : null,
-        last_event_at: now,
-      })
-      .eq("provider_subscription_id", params.subscriptionId);
-
-    if (membershipError) {
-      throw new Error(`membership_status_update_failed: ${membershipError.message}`);
-    }
   }
 
   if (params.downgradeToFree && userId) {
@@ -229,6 +222,11 @@ async function updateMembershipStatus(params: {
       throw new Error(`profile_downgrade_failed: ${profileError.message}`);
     }
   }
+
+  return {
+    membershipFound: true,
+    profileUpdated: params.downgradeToFree,
+  };
 }
 
 export async function GET() {
@@ -331,12 +329,30 @@ export async function POST(request: Request) {
       const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
 
       try {
-        await updateMembershipStatus({
+        const updateResult = await updateMembershipStatus({
           subscriptionId,
           status: nextStatus,
-          rawStatus: event.payment?.status || event.subscription?.status || null,
+          rawStatus: eventName,
           downgradeToFree: shouldDowngradeToFree,
         });
+
+        if (!updateResult.membershipFound) {
+          console.warn("Asaas webhook ignored: membership not found for subscription event", {
+            method: request.method,
+            event: eventName,
+            paymentId: event.payment?.id || null,
+            subscriptionId,
+            membershipFound: false,
+            profileUpdated: false,
+            result: "ignored",
+          });
+
+          return NextResponse.json({
+            received: true,
+            ignored: true,
+            reason: "membership_not_found",
+          });
+        }
 
         console.info("Asaas membership status updated without externalReference", {
           method: request.method,
@@ -345,14 +361,16 @@ export async function POST(request: Request) {
           subscriptionId,
           status: event.payment?.status || event.subscription?.status || null,
           calculatedStatus: nextStatus,
-          profileDowngraded: shouldDowngradeToFree,
+          membershipFound: updateResult.membershipFound,
+          profileUpdated: updateResult.profileUpdated,
           result: "updated",
         });
 
         return NextResponse.json({
           received: true,
+          processed: true,
           updated: true,
-          profileDowngraded: shouldDowngradeToFree,
+          profileUpdated: updateResult.profileUpdated,
         });
       } catch (error) {
         console.error("Asaas webhook status update without externalReference failed", {
@@ -404,12 +422,12 @@ export async function POST(request: Request) {
     const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
 
     try {
-      await updateMembershipStatus({
+      const updateResult = await updateMembershipStatus({
         userId: reference.user_id,
         planType: reference.plan_type,
         subscriptionId,
         status: nextStatus,
-        rawStatus: event.payment?.status || event.subscription?.status || null,
+        rawStatus: eventName,
         downgradeToFree: shouldDowngradeToFree,
       });
 
@@ -420,7 +438,8 @@ export async function POST(request: Request) {
         subscriptionId,
         status: event.payment?.status || event.subscription?.status || null,
         calculatedStatus: nextStatus,
-        profileDowngraded: shouldDowngradeToFree,
+        membershipFound: updateResult.membershipFound,
+        profileUpdated: updateResult.profileUpdated,
         userId: reference.user_id,
         planType: reference.plan_type,
         result: "updated",
@@ -428,8 +447,9 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         received: true,
+        processed: true,
         updated: true,
-        profileDowngraded: shouldDowngradeToFree,
+        profileUpdated: updateResult.profileUpdated,
       });
     } catch (error) {
       console.error("Asaas webhook status update failed", {

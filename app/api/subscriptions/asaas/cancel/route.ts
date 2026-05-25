@@ -36,6 +36,17 @@ function getAsaasErrorDescriptions(errorBody: AsaasErrorBody | null) {
   })) || [];
 }
 
+function isInvalidActionError(errorBody: AsaasErrorBody | null) {
+  return Boolean(
+    errorBody?.errors?.some((error) => {
+      const code = error.code?.toLowerCase() || "";
+      const description = error.description?.toLowerCase() || "";
+
+      return code === "invalid_action" || description.includes("não pode ser atualizada");
+    })
+  );
+}
+
 export async function POST(request: Request) {
   const authorization = request.headers.get("authorization");
   const accessToken = authorization?.startsWith("Bearer ")
@@ -117,14 +128,55 @@ export async function POST(request: Request) {
     );
   }
 
-  const cancelResponse = await fetch(`${asaasBaseUrl}/subscriptions/${membership.provider_subscription_id}`, {
+  const subscriptionUrl = `${asaasBaseUrl}/subscriptions/${membership.provider_subscription_id}`;
+  const cancelResponse = await fetch(subscriptionUrl, {
     method: "PUT",
     headers: createAsaasHeaders(asaasApiKey),
     body: JSON.stringify({ status: "INACTIVE" }),
   });
   const cancelData = await cancelResponse.json().catch(() => null) as AsaasErrorBody | null;
+  let requestStatus = "inactive_pending_webhook";
+  let rawStatus = "INACTIVE";
+  let cancellationStatus = cancelResponse.status;
 
-  if (!cancelResponse.ok) {
+  if (!cancelResponse.ok && isInvalidActionError(cancelData)) {
+    console.warn("Asaas subscription inactive update rejected, trying delete fallback", {
+      userId: user.id,
+      subscriptionId: membership.provider_subscription_id,
+      status: cancelResponse.status,
+      errors: getAsaasErrorDescriptions(cancelData),
+    });
+
+    const deleteResponse = await fetch(subscriptionUrl, {
+      method: "DELETE",
+      headers: createAsaasHeaders(asaasApiKey),
+    });
+    const deleteData = await deleteResponse.json().catch(() => null) as AsaasErrorBody | null;
+    cancellationStatus = deleteResponse.status;
+
+    if (!deleteResponse.ok) {
+      console.error("Asaas subscription delete fallback failed", {
+        userId: user.id,
+        subscriptionId: membership.provider_subscription_id,
+        status: deleteResponse.status,
+        errors: getAsaasErrorDescriptions(deleteData),
+      });
+
+      return NextResponse.json(
+        {
+          message: getPrimaryAsaasErrorDescription(deleteData)
+            ? `Asaas rejeitou o cancelamento: ${getPrimaryAsaasErrorDescription(deleteData)}`
+            : "Asaas rejeitou o cancelamento da assinatura.",
+        },
+        { status: 502 }
+      );
+    }
+
+    requestStatus = "delete_requested";
+    rawStatus = "DELETE_REQUESTED";
+  }
+
+  if (!cancelResponse.ok && requestStatus !== "delete_requested") {
     console.error("Asaas subscription cancellation failed", {
       userId: user.id,
       subscriptionId: membership.provider_subscription_id,
@@ -146,8 +198,8 @@ export async function POST(request: Request) {
   const { error: updateError } = await supabaseAdmin
     .from("memberships")
     .update({
-      status: "inactive_pending_webhook",
-      raw_status: "INACTIVE",
+      status: requestStatus,
+      raw_status: rawStatus,
       last_event_at: now,
     })
     .eq("id", membership.id)
@@ -164,7 +216,8 @@ export async function POST(request: Request) {
   console.info("Asaas subscription cancellation requested", {
     userId: user.id,
     subscriptionId: membership.provider_subscription_id,
-    status: cancelResponse.status,
+    status: cancellationStatus,
+    requestStatus,
   });
 
   return NextResponse.json({
