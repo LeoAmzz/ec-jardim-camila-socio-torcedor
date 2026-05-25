@@ -16,6 +16,11 @@ type AsaasErrorBody = {
   }>;
 };
 
+type AsaasSubscription = AsaasErrorBody & {
+  id?: string;
+  nextDueDate?: string;
+};
+
 function createAsaasHeaders(apiKey: string) {
   return {
     accept: "application/json",
@@ -45,6 +50,42 @@ function isInvalidActionError(errorBody: AsaasErrorBody | null) {
       return code === "invalid_action" || description.includes("não pode ser atualizada");
     })
   );
+}
+
+function getFutureIsoDate(date?: string | null) {
+  if (!date) {
+    return null;
+  }
+
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+async function getSubscriptionAccessUntil(params: {
+  apiKey: string;
+  baseUrl: string;
+  subscriptionId: string;
+}) {
+  const response = await fetch(`${params.baseUrl}/subscriptions/${params.subscriptionId}`, {
+    headers: createAsaasHeaders(params.apiKey),
+  });
+  const subscription = await response.json().catch(() => null) as AsaasSubscription | null;
+
+  if (!response.ok) {
+    console.warn("Asaas subscription lookup before cancellation failed", {
+      subscriptionId: params.subscriptionId,
+      status: response.status,
+      errors: getAsaasErrorDescriptions(subscription),
+    });
+    return null;
+  }
+
+  return getFutureIsoDate(subscription?.nextDueDate);
 }
 
 export async function POST(request: Request) {
@@ -129,6 +170,11 @@ export async function POST(request: Request) {
   }
 
   const subscriptionUrl = `${asaasBaseUrl}/subscriptions/${membership.provider_subscription_id}`;
+  const accessUntil = await getSubscriptionAccessUntil({
+    apiKey: asaasApiKey,
+    baseUrl: asaasBaseUrl,
+    subscriptionId: membership.provider_subscription_id,
+  });
   const cancelResponse = await fetch(subscriptionUrl, {
     method: "PUT",
     headers: createAsaasHeaders(asaasApiKey),
@@ -200,6 +246,7 @@ export async function POST(request: Request) {
     .update({
       status: requestStatus,
       raw_status: rawStatus,
+      access_until: accessUntil,
       last_event_at: now,
     })
     .eq("id", membership.id)
@@ -218,6 +265,7 @@ export async function POST(request: Request) {
     subscriptionId: membership.provider_subscription_id,
     status: cancellationStatus,
     requestStatus,
+    accessUntil,
   });
 
   return NextResponse.json({

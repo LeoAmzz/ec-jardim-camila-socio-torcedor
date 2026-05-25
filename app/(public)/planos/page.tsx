@@ -18,6 +18,7 @@ type Membership = {
   raw_status: string | null;
   started_at: string | null;
   ended_at: string | null;
+  access_until: string | null;
   last_event_at: string | null;
   created_at: string | null;
 };
@@ -70,7 +71,7 @@ function PlanosContent() {
 
       const { data, error } = await supabase
         .from("memberships")
-        .select("id,user_id,plan_type,provider,provider_subscription_id,status,raw_status,started_at,ended_at,last_event_at,created_at")
+        .select("id,user_id,plan_type,provider,provider_subscription_id,status,raw_status,started_at,ended_at,access_until,last_event_at,created_at")
         .eq("user_id", user.id)
         .eq("provider", "asaas")
         .order("created_at", { ascending: false })
@@ -143,6 +144,10 @@ function PlanosContent() {
 
     if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
       return "Cancelada";
+    }
+
+    if (normalizedStatus === "cancelled_at_period_end") {
+      return "Cancelada ao fim do período";
     }
 
     if (normalizedStatus === "inactive") {
@@ -436,6 +441,13 @@ function PlanosContent() {
               <p className="text-sm font-semibold text-accent">{membershipError}</p>
             ) : membership ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                {membership.status === "cancelled_at_period_end" && (
+                  <div className="rounded-xl border border-accent/30 bg-accent/10 p-4 text-accent sm:col-span-2 lg:col-span-4">
+                    <p className="font-semibold">
+                      Cancelada, com acesso até {formatDate(membership.access_until || membership.ended_at)}.
+                    </p>
+                  </div>
+                )}
                 <div className="rounded-xl bg-muted/40 p-4">
                   <p className="text-muted-foreground">Plano</p>
                   <p className="mt-1 font-bold text-foreground">{getPlanName(membership.plan_type)}</p>

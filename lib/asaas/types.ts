@@ -27,6 +27,7 @@ export interface AsaasSubscription {
   status?: string;
   description?: string;
   value?: number;
+  nextDueDate?: string;
   externalReference?: string;
   invoiceUrl?: string;
   paymentLink?: string;
@@ -58,6 +59,7 @@ export interface AsaasWebhookEvent {
   subscription?: {
     id?: string;
     status?: string;
+    nextDueDate?: string;
     externalReference?: string;
   };
 }

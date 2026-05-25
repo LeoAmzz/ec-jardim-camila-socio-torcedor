@@ -23,6 +23,20 @@ type MembershipReference = {
   provider?: string;
 };
 
+function getFutureIsoDate(date?: string | null) {
+  if (!date) {
+    return null;
+  }
+
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
 function getWebhookToken(request: Request) {
   return request.headers.get("asaas-access-token");
 }
@@ -97,11 +111,23 @@ async function resolveExternalReference(event: AsaasWebhookEvent) {
   return parseExternalReference(subscription?.externalReference);
 }
 
+async function resolveSubscriptionNextDueDate(event: AsaasWebhookEvent, subscriptionId: string) {
+  const eventNextDueDate = getFutureIsoDate(event.subscription?.nextDueDate);
+
+  if (eventNextDueDate) {
+    return eventNextDueDate;
+  }
+
+  const subscription = await fetchAsaasSubscription(subscriptionId);
+  return getFutureIsoDate(subscription?.nextDueDate);
+}
+
 async function activateMembership(params: {
   userId: string;
   planType: PaidPlanType;
   subscriptionId: string;
   rawStatus?: string | null;
+  accessUntil?: string | null;
 }) {
   const supabase = getSupabaseAdminClient();
   const now = new Date().toISOString();
@@ -122,6 +148,7 @@ async function activateMembership(params: {
         status: "active",
         raw_status: params.rawStatus || null,
         started_at: existingMembership?.started_at || now,
+        access_until: params.accessUntil || null,
         ended_at: null,
         last_event_at: now,
       },
@@ -164,12 +191,14 @@ async function updateMembershipStatus(params: {
   status: string;
   rawStatus?: string | null;
   downgradeToFree: boolean;
+  accessUntil?: string | null;
+  deferDowngradeIfAccessRemains?: boolean;
 }) {
   const supabase = getSupabaseAdminClient();
   const now = new Date().toISOString();
   const { data: existingMembership, error: existingError } = await supabase
     .from("memberships")
-    .select("user_id,plan_type")
+    .select("user_id,plan_type,access_until,ended_at")
     .eq("provider_subscription_id", params.subscriptionId)
     .maybeSingle();
 
@@ -179,11 +208,23 @@ async function updateMembershipStatus(params: {
 
   const userId = params.userId || existingMembership?.user_id;
   const planType = params.planType || existingMembership?.plan_type;
+  const accessUntil = getFutureIsoDate(params.accessUntil)
+    || getFutureIsoDate(existingMembership?.access_until)
+    || getFutureIsoDate(existingMembership?.ended_at);
+  const shouldDeferDowngrade = Boolean(
+    params.downgradeToFree &&
+    params.deferDowngradeIfAccessRemains &&
+    accessUntil
+  );
+  const nextStatus = shouldDeferDowngrade ? "cancelled_at_period_end" : params.status;
+  const nextEndedAt = shouldDeferDowngrade ? accessUntil : params.downgradeToFree ? now : null;
 
   if (!userId || !isPaidPlanType(planType)) {
     return {
       membershipFound: false,
       profileUpdated: false,
+      accessDeferred: false,
+      accessUntil: null,
     };
   }
 
@@ -196,9 +237,10 @@ async function updateMembershipStatus(params: {
           plan_type: planType,
           provider: "asaas",
           provider_subscription_id: params.subscriptionId,
-          status: params.status,
+          status: nextStatus,
           raw_status: params.rawStatus || null,
-          ended_at: params.downgradeToFree ? now : null,
+          access_until: accessUntil,
+          ended_at: nextEndedAt,
           last_event_at: now,
         },
         { onConflict: "provider_subscription_id" }
@@ -209,7 +251,7 @@ async function updateMembershipStatus(params: {
     }
   }
 
-  if (params.downgradeToFree && userId) {
+  if (params.downgradeToFree && !shouldDeferDowngrade && userId) {
     const { error: profileError } = await supabase
       .from("profiles")
       .update({
@@ -225,7 +267,9 @@ async function updateMembershipStatus(params: {
 
   return {
     membershipFound: true,
-    profileUpdated: params.downgradeToFree,
+    profileUpdated: params.downgradeToFree && !shouldDeferDowngrade,
+    accessDeferred: shouldDeferDowngrade,
+    accessUntil,
   };
 }
 
@@ -327,6 +371,10 @@ export async function POST(request: Request) {
         ? "overdue"
         : getInactiveMembershipStatus(eventName);
       const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
+      const shouldDeferDowngrade = eventName === "SUBSCRIPTION_DELETED" || eventName === "SUBSCRIPTION_INACTIVATED";
+      const accessUntil = shouldDeferDowngrade
+        ? await resolveSubscriptionNextDueDate(event, subscriptionId)
+        : null;
 
       try {
         const updateResult = await updateMembershipStatus({
@@ -334,6 +382,8 @@ export async function POST(request: Request) {
           status: nextStatus,
           rawStatus: eventName,
           downgradeToFree: shouldDowngradeToFree,
+          accessUntil,
+          deferDowngradeIfAccessRemains: shouldDeferDowngrade,
         });
 
         if (!updateResult.membershipFound) {
@@ -363,6 +413,8 @@ export async function POST(request: Request) {
           calculatedStatus: nextStatus,
           membershipFound: updateResult.membershipFound,
           profileUpdated: updateResult.profileUpdated,
+          accessDeferred: updateResult.accessDeferred,
+          accessUntil: updateResult.accessUntil,
           result: "updated",
         });
 
@@ -371,6 +423,8 @@ export async function POST(request: Request) {
           processed: true,
           updated: true,
           profileUpdated: updateResult.profileUpdated,
+          accessDeferred: updateResult.accessDeferred,
+          accessUntil: updateResult.accessUntil,
         });
       } catch (error) {
         console.error("Asaas webhook status update without externalReference failed", {
@@ -420,6 +474,10 @@ export async function POST(request: Request) {
       ? "overdue"
       : getInactiveMembershipStatus(eventName);
     const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
+    const shouldDeferDowngrade = eventName === "SUBSCRIPTION_DELETED" || eventName === "SUBSCRIPTION_INACTIVATED";
+    const accessUntil = shouldDeferDowngrade
+      ? await resolveSubscriptionNextDueDate(event, subscriptionId)
+      : null;
 
     try {
       const updateResult = await updateMembershipStatus({
@@ -429,6 +487,8 @@ export async function POST(request: Request) {
         status: nextStatus,
         rawStatus: eventName,
         downgradeToFree: shouldDowngradeToFree,
+        accessUntil,
+        deferDowngradeIfAccessRemains: shouldDeferDowngrade,
       });
 
       console.info("Asaas membership status updated", {
@@ -440,6 +500,8 @@ export async function POST(request: Request) {
         calculatedStatus: nextStatus,
         membershipFound: updateResult.membershipFound,
         profileUpdated: updateResult.profileUpdated,
+        accessDeferred: updateResult.accessDeferred,
+        accessUntil: updateResult.accessUntil,
         userId: reference.user_id,
         planType: reference.plan_type,
         result: "updated",
@@ -450,6 +512,8 @@ export async function POST(request: Request) {
         processed: true,
         updated: true,
         profileUpdated: updateResult.profileUpdated,
+        accessDeferred: updateResult.accessDeferred,
+        accessUntil: updateResult.accessUntil,
       });
     } catch (error) {
       console.error("Asaas webhook status update failed", {
@@ -471,11 +535,14 @@ export async function POST(request: Request) {
   }
 
   try {
+    const accessUntil = await resolveSubscriptionNextDueDate(event, subscriptionId);
+
     await activateMembership({
       userId: reference.user_id,
       planType: reference.plan_type,
       subscriptionId,
       rawStatus: event.payment?.status || event.subscription?.status || null,
+      accessUntil,
     });
 
     console.info("Asaas membership activated", {
@@ -486,6 +553,7 @@ export async function POST(request: Request) {
       status: event.payment?.status || event.subscription?.status || null,
       userId: reference.user_id,
       planType: reference.plan_type,
+      accessUntil,
       result: "updated",
     });
 
