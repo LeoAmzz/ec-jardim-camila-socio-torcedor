@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Shield, Shirt, Trophy } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthProvider, useAuth } from "@/components/auth/AuthProvider";
 import { isPaidPlan } from "@/lib/plans";
 import { supabase } from "@/lib/supabase/client";
@@ -17,13 +17,43 @@ export default function PlanosPage() {
 }
 
 function PlanosContent() {
-  const { user, profile, profileLoading } = useAuth();
+  const { user, profile, profileLoading, refreshProfile } = useAuth();
   const [message, setMessage] = useState<string | null>(null);
+  const [checkoutStatus, setCheckoutStatus] = useState<string | null>(null);
   const [isPreparingCheckout, setIsPreparingCheckout] = useState<PlanType | null>(null);
   const currentPlan = profile?.plan_type || "torcedor";
+  const currentPlanName = currentPlan === "campeao" ? "Campeão" : currentPlan === "camisa" ? "Camisa" : "Torcedor";
+
+  useEffect(() => {
+    const checkout = new URLSearchParams(window.location.search).get("checkout");
+
+    if (checkout === "success" || checkout === "cancel" || checkout === "error") {
+      setCheckoutStatus(checkout);
+    }
+
+    if (checkout === "success") {
+      void refreshProfile();
+    }
+  }, [refreshProfile]);
 
   function isCurrentPlan(plan: PlanType) {
     return Boolean(user) && currentPlan === plan;
+  }
+
+  function getCheckoutMessage() {
+    if (checkoutStatus === "success" && (currentPlan === "camisa" || currentPlan === "campeao")) {
+      return `Assinatura ativa! Seu plano atual é ${currentPlanName}.`;
+    }
+
+    if (checkoutStatus === "success") {
+      return "Pagamento recebido! Estamos atualizando seu plano. Se o plano ainda não aparecer, aguarde alguns segundos e atualize a página.";
+    }
+
+    if (checkoutStatus === "cancel" || checkoutStatus === "error") {
+      return "Assinatura não concluída. Você pode tentar novamente quando quiser.";
+    }
+
+    return null;
   }
 
   async function handleChoosePlan(plan: PlanType) {
@@ -95,6 +125,11 @@ function PlanosContent() {
               {message}
             </p>
           )}
+          {getCheckoutMessage() && (
+            <p className="mt-4 rounded-xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent">
+              {getCheckoutMessage()}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
@@ -149,6 +184,9 @@ function PlanosContent() {
               </div>
               <div className="text-3xl font-bold text-foreground mb-1">R$ 15,00<span className="text-sm font-normal text-muted-foreground">/mês</span></div>
               <p className="text-muted-foreground text-sm">O plano perfeito para os fanáticos.</p>
+              {isCurrentPlan("camisa") && (
+                <p className="mt-2 text-xs font-semibold text-accent">Assinatura ativa</p>
+              )}
             </div>
             
             <ul className="space-y-4 mb-8 flex-1 text-sm text-foreground">
@@ -190,6 +228,9 @@ function PlanosContent() {
               </div>
               <div className="text-3xl font-bold text-foreground mb-1">R$ 39,90<span className="text-sm font-normal text-muted-foreground">/mês</span></div>
               <p className="text-muted-foreground text-sm">Para os verdadeiros líderes da torcida.</p>
+              {isCurrentPlan("campeao") && (
+                <p className="mt-2 text-xs font-semibold text-accent">Assinatura ativa</p>
+              )}
             </div>
             
             <ul className="space-y-4 mb-8 flex-1 text-sm text-foreground">
