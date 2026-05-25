@@ -8,6 +8,20 @@ import { isPaidPlan } from "@/lib/plans";
 import { supabase } from "@/lib/supabase/client";
 import type { PlanType } from "@/lib/types/membership";
 
+type Membership = {
+  id: string;
+  user_id: string;
+  plan_type: Exclude<PlanType, "torcedor">;
+  provider: string;
+  provider_subscription_id: string | null;
+  status: string;
+  raw_status: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  last_event_at: string | null;
+  created_at: string | null;
+};
+
 export default function PlanosPage() {
   return (
     <AuthProvider>
@@ -21,6 +35,9 @@ function PlanosContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [checkoutStatus, setCheckoutStatus] = useState<string | null>(null);
   const [isPreparingCheckout, setIsPreparingCheckout] = useState<PlanType | null>(null);
+  const [membership, setMembership] = useState<Membership | null>(null);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+  const [membershipError, setMembershipError] = useState<string | null>(null);
   const currentPlan = profile?.plan_type || "torcedor";
   const currentPlanName = currentPlan === "campeao" ? "Campeão" : currentPlan === "camisa" ? "Camisa" : "Torcedor";
 
@@ -35,6 +52,49 @@ function PlanosContent() {
       void refreshProfile();
     }
   }, [refreshProfile]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadMembership() {
+      if (!user?.id) {
+        setMembership(null);
+        setMembershipError(null);
+        return;
+      }
+
+      setMembershipLoading(true);
+      setMembershipError(null);
+
+      const { data, error } = await supabase
+        .from("memberships")
+        .select("id,user_id,plan_type,provider,provider_subscription_id,status,raw_status,started_at,ended_at,last_event_at,created_at")
+        .eq("user_id", user.id)
+        .eq("provider", "asaas")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<Membership>();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setMembership(null);
+        setMembershipError("Não foi possível carregar sua assinatura agora.");
+      } else {
+        setMembership(data);
+      }
+
+      setMembershipLoading(false);
+    }
+
+    void loadMembership();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, checkoutStatus]);
 
   function isCurrentPlan(plan: PlanType) {
     return Boolean(user) && currentPlan === plan;
@@ -54,6 +114,54 @@ function PlanosContent() {
     }
 
     return null;
+  }
+
+  function getPlanName(plan: PlanType) {
+    if (plan === "campeao") {
+      return "Campeão";
+    }
+
+    if (plan === "camisa") {
+      return "Camisa";
+    }
+
+    return "Torcedor";
+  }
+
+  function getMembershipStatusLabel(status?: string | null, rawStatus?: string | null) {
+    const normalizedStatus = (status || rawStatus || "").toLowerCase();
+
+    if (normalizedStatus === "active" || normalizedStatus === "received" || normalizedStatus === "confirmed") {
+      return "Ativa";
+    }
+
+    if (normalizedStatus === "pending" || normalizedStatus === "in_process") {
+      return "Pendente";
+    }
+
+    if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
+      return "Cancelada";
+    }
+
+    if (normalizedStatus === "inactive") {
+      return "Inativa";
+    }
+
+    return status || rawStatus || "Status não informado";
+  }
+
+  function formatDate(date: string | null) {
+    if (!date) {
+      return "Não informado";
+    }
+
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(date));
   }
 
   async function handleChoosePlan(plan: PlanType) {
@@ -257,6 +365,48 @@ function PlanosContent() {
             )}
           </div>
         </div>
+
+        {user && (
+          <section className="mt-12 rounded-2xl border border-border bg-card p-6 md:p-8">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-foreground">Minha assinatura</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Dados reais da sua assinatura paga, atualizados pelo webhook do Asaas.
+              </p>
+            </div>
+
+            {membershipLoading ? (
+              <p className="text-sm text-muted-foreground">Carregando assinatura...</p>
+            ) : membershipError ? (
+              <p className="text-sm font-semibold text-accent">{membershipError}</p>
+            ) : membership ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                <div className="rounded-xl bg-muted/40 p-4">
+                  <p className="text-muted-foreground">Plano</p>
+                  <p className="mt-1 font-bold text-foreground">{getPlanName(membership.plan_type)}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-4">
+                  <p className="text-muted-foreground">Status</p>
+                  <p className="mt-1 font-bold text-foreground">{getMembershipStatusLabel(membership.status, membership.raw_status)}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-4">
+                  <p className="text-muted-foreground">Provedor</p>
+                  <p className="mt-1 font-bold text-foreground">Asaas</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-4">
+                  <p className="text-muted-foreground">Início</p>
+                  <p className="mt-1 font-bold text-foreground">{formatDate(membership.started_at || membership.created_at)}</p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-4 sm:col-span-2 lg:col-span-4">
+                  <p className="text-muted-foreground">Última atualização</p>
+                  <p className="mt-1 font-bold text-foreground">{formatDate(membership.last_event_at || membership.created_at)}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Você ainda não possui uma assinatura paga ativa.</p>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );
