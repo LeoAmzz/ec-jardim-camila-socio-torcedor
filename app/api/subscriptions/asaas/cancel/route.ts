@@ -1,0 +1,173 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getAsaasApiKey, getAsaasBaseUrl } from "@/lib/asaas/config";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+
+type Membership = {
+  id: string;
+  provider_subscription_id: string | null;
+  status: string;
+};
+
+type AsaasErrorBody = {
+  errors?: Array<{
+    code?: string;
+    description?: string;
+  }>;
+};
+
+function createAsaasHeaders(apiKey: string) {
+  return {
+    accept: "application/json",
+    "content-type": "application/json",
+    "User-Agent": "CamilaFC/1.0",
+    access_token: apiKey,
+  };
+}
+
+function getPrimaryAsaasErrorDescription(errorBody: AsaasErrorBody | null) {
+  return errorBody?.errors?.find((error) => error.description)?.description;
+}
+
+function getAsaasErrorDescriptions(errorBody: AsaasErrorBody | null) {
+  return errorBody?.errors?.map((error) => ({
+    code: error.code,
+    description: error.description,
+  })) || [];
+}
+
+export async function POST(request: Request) {
+  const authorization = request.headers.get("authorization");
+  const accessToken = authorization?.startsWith("Bearer ")
+    ? authorization.replace("Bearer ", "").trim()
+    : null;
+
+  if (!accessToken) {
+    return NextResponse.json({ message: "Faça login para cancelar sua assinatura." }, { status: 401 });
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return NextResponse.json(
+      { message: "Configuração do Supabase ausente no servidor." },
+      { status: 500 }
+    );
+  }
+
+  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  const {
+    data: { user },
+    error: userError,
+  } = await supabaseAuth.auth.getUser(accessToken);
+
+  if (userError || !user) {
+    return NextResponse.json(
+      { message: "Sessão inválida ou expirada. Faça login novamente." },
+      { status: 401 }
+    );
+  }
+
+  const supabaseAdmin = getSupabaseAdminClient();
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("memberships")
+    .select("id,provider_subscription_id,status")
+    .eq("user_id", user.id)
+    .eq("provider", "asaas")
+    .in("status", ["active", "confirmed", "received"])
+    .not("provider_subscription_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<Membership>();
+
+  if (membershipError) {
+    console.error("Asaas cancellation membership lookup failed", {
+      userId: user.id,
+      error: membershipError.message,
+    });
+    return NextResponse.json(
+      { message: "Não foi possível localizar sua assinatura agora." },
+      { status: 500 }
+    );
+  }
+
+  if (!membership?.provider_subscription_id) {
+    return NextResponse.json(
+      { message: "Nenhuma assinatura ativa encontrada." },
+      { status: 404 }
+    );
+  }
+
+  let asaasApiKey: string;
+  let asaasBaseUrl: string;
+
+  try {
+    asaasApiKey = getAsaasApiKey();
+    asaasBaseUrl = getAsaasBaseUrl();
+  } catch {
+    return NextResponse.json(
+      { message: "Cancelamento Asaas ainda não está configurado no servidor." },
+      { status: 500 }
+    );
+  }
+
+  const cancelResponse = await fetch(`${asaasBaseUrl}/subscriptions/${membership.provider_subscription_id}`, {
+    method: "PUT",
+    headers: createAsaasHeaders(asaasApiKey),
+    body: JSON.stringify({ status: "INACTIVE" }),
+  });
+  const cancelData = await cancelResponse.json().catch(() => null) as AsaasErrorBody | null;
+
+  if (!cancelResponse.ok) {
+    console.error("Asaas subscription cancellation failed", {
+      userId: user.id,
+      subscriptionId: membership.provider_subscription_id,
+      status: cancelResponse.status,
+      errors: getAsaasErrorDescriptions(cancelData),
+    });
+
+    return NextResponse.json(
+      {
+        message: getPrimaryAsaasErrorDescription(cancelData)
+          ? `Asaas rejeitou o cancelamento: ${getPrimaryAsaasErrorDescription(cancelData)}`
+          : "Asaas rejeitou o cancelamento da assinatura.",
+      },
+      { status: 502 }
+    );
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabaseAdmin
+    .from("memberships")
+    .update({
+      status: "inactive_pending_webhook",
+      raw_status: "INACTIVE",
+      last_event_at: now,
+    })
+    .eq("id", membership.id)
+    .eq("user_id", user.id);
+
+  if (updateError) {
+    console.error("Asaas cancellation pending status update failed", {
+      userId: user.id,
+      subscriptionId: membership.provider_subscription_id,
+      error: updateError.message,
+    });
+  }
+
+  console.info("Asaas subscription cancellation requested", {
+    userId: user.id,
+    subscriptionId: membership.provider_subscription_id,
+    status: cancelResponse.status,
+  });
+
+  return NextResponse.json({
+    message: "Solicitação de cancelamento enviada. Aguarde a confirmação.",
+  });
+}

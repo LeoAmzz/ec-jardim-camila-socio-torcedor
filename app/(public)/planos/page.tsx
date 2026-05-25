@@ -38,6 +38,8 @@ function PlanosContent() {
   const [membership, setMembership] = useState<Membership | null>(null);
   const [membershipLoading, setMembershipLoading] = useState(false);
   const [membershipError, setMembershipError] = useState<string | null>(null);
+  const [membershipRefreshKey, setMembershipRefreshKey] = useState(0);
+  const [isCancellingSubscription, setIsCancellingSubscription] = useState(false);
   const currentPlan = profile?.plan_type || "torcedor";
   const currentPlanName = currentPlan === "campeao" ? "Campeão" : currentPlan === "camisa" ? "Camisa" : "Torcedor";
 
@@ -94,7 +96,7 @@ function PlanosContent() {
     return () => {
       isMounted = false;
     };
-  }, [user?.id, checkoutStatus]);
+  }, [user?.id, checkoutStatus, membershipRefreshKey]);
 
   function isCurrentPlan(plan: PlanType) {
     return Boolean(user) && currentPlan === plan;
@@ -148,6 +150,10 @@ function PlanosContent() {
     }
 
     return status || rawStatus || "Status não informado";
+  }
+
+  function isActiveMembership(status?: string | null) {
+    return status === "active" || status === "confirmed" || status === "received";
   }
 
   function formatDate(date: string | null) {
@@ -217,6 +223,55 @@ function PlanosContent() {
       setMessage("Não foi possível preparar a assinatura agora. Tente novamente em instantes.");
     } finally {
       setIsPreparingCheckout(null);
+    }
+  }
+
+  async function handleCancelSubscription() {
+    if (!membership || !isActiveMembership(membership.status)) {
+      setMessage("Nenhuma assinatura ativa encontrada.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Tem certeza que deseja cancelar sua assinatura? Seu acesso será ajustado após confirmação do Asaas."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsCancellingSubscription(true);
+    setMessage(null);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setMessage("Sua sessão expirou. Faça login novamente para continuar.");
+        return;
+      }
+
+      const response = await fetch("/api/subscriptions/asaas/cancel", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await response.json().catch(() => null) as { message?: string } | null;
+
+      if (!response.ok) {
+        setMessage(data?.message || "Não foi possível solicitar o cancelamento agora.");
+        return;
+      }
+
+      setMessage(data?.message || "Solicitação de cancelamento enviada. Aguarde a confirmação.");
+      setMembershipRefreshKey((current) => current + 1);
+    } catch {
+      setMessage("Não foi possível solicitar o cancelamento agora. Tente novamente em instantes.");
+    } finally {
+      setIsCancellingSubscription(false);
     }
   }
 
@@ -401,6 +456,18 @@ function PlanosContent() {
                   <p className="text-muted-foreground">Última atualização</p>
                   <p className="mt-1 font-bold text-foreground">{formatDate(membership.last_event_at || membership.created_at)}</p>
                 </div>
+                {isActiveMembership(membership.status) && (
+                  <div className="sm:col-span-2 lg:col-span-4">
+                    <button
+                      type="button"
+                      onClick={handleCancelSubscription}
+                      disabled={isCancellingSubscription}
+                      className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {isCancellingSubscription ? "Solicitando cancelamento..." : "Cancelar assinatura"}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Você ainda não possui uma assinatura paga ativa.</p>
