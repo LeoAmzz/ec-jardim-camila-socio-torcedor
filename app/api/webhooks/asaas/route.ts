@@ -5,12 +5,16 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { PaidPlanType } from "@/lib/types/membership";
 
 const PLAN_ACTIVATION_EVENTS = new Set(["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"]);
+const PLAN_DEACTIVATION_EVENTS = new Set([
+  "SUBSCRIPTION_INACTIVATED",
+  "SUBSCRIPTION_DELETED",
+  "PAYMENT_REFUNDED",
+  "PAYMENT_DELETED",
+]);
+const MEMBERSHIP_STATUS_ONLY_EVENTS = new Set(["PAYMENT_OVERDUE"]);
 const IGNORED_PAYMENT_EVENTS = new Set([
   "PAYMENT_CREATED",
   "PAYMENT_UPDATED",
-  "PAYMENT_OVERDUE",
-  "PAYMENT_REFUNDED",
-  "PAYMENT_DELETED",
 ]);
 
 type MembershipReference = {
@@ -141,6 +145,92 @@ async function activateMembership(params: {
   }
 }
 
+function getInactiveMembershipStatus(eventName: string) {
+  if (eventName === "PAYMENT_REFUNDED") {
+    return "refunded";
+  }
+
+  if (eventName === "PAYMENT_DELETED" || eventName === "SUBSCRIPTION_DELETED") {
+    return "cancelled";
+  }
+
+  return "inactive";
+}
+
+async function updateMembershipStatus(params: {
+  userId?: string;
+  planType?: PaidPlanType;
+  subscriptionId: string;
+  status: string;
+  rawStatus?: string | null;
+  downgradeToFree: boolean;
+}) {
+  const supabase = getSupabaseAdminClient();
+  const now = new Date().toISOString();
+  const { data: existingMembership, error: existingError } = await supabase
+    .from("memberships")
+    .select("user_id,plan_type")
+    .eq("provider_subscription_id", params.subscriptionId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`membership_lookup_failed: ${existingError.message}`);
+  }
+
+  const userId = params.userId || existingMembership?.user_id;
+  const planType = params.planType || existingMembership?.plan_type;
+
+  if (userId && isPaidPlanType(planType)) {
+    const { error: membershipError } = await supabase
+      .from("memberships")
+      .upsert(
+        {
+          user_id: userId,
+          plan_type: planType,
+          provider: "asaas",
+          provider_subscription_id: params.subscriptionId,
+          status: params.status,
+          raw_status: params.rawStatus || null,
+          ended_at: params.downgradeToFree ? now : null,
+          last_event_at: now,
+        },
+        { onConflict: "provider_subscription_id" }
+      );
+
+    if (membershipError) {
+      throw new Error(`membership_status_upsert_failed: ${membershipError.message}`);
+    }
+  } else {
+    const { error: membershipError } = await supabase
+      .from("memberships")
+      .update({
+        status: params.status,
+        raw_status: params.rawStatus || null,
+        ended_at: params.downgradeToFree ? now : null,
+        last_event_at: now,
+      })
+      .eq("provider_subscription_id", params.subscriptionId);
+
+    if (membershipError) {
+      throw new Error(`membership_status_update_failed: ${membershipError.message}`);
+    }
+  }
+
+  if (params.downgradeToFree && userId) {
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({
+        plan_type: "torcedor",
+        updated_at: now,
+      })
+      .eq("id", userId);
+
+    if (profileError) {
+      throw new Error(`profile_downgrade_failed: ${profileError.message}`);
+    }
+  }
+}
+
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -201,7 +291,11 @@ export async function POST(request: Request) {
     paymentValue: event.payment?.value || null,
   });
 
-  if (!PLAN_ACTIVATION_EVENTS.has(eventName)) {
+  if (
+    !PLAN_ACTIVATION_EVENTS.has(eventName) &&
+    !PLAN_DEACTIVATION_EVENTS.has(eventName) &&
+    !MEMBERSHIP_STATUS_ONLY_EVENTS.has(eventName)
+  ) {
     if (IGNORED_PAYMENT_EVENTS.has(eventName) || eventName.startsWith("SUBSCRIPTION_")) {
       console.info("Asaas webhook ignored safely", {
         method: request.method,
@@ -230,6 +324,53 @@ export async function POST(request: Request) {
   const reference = await resolveExternalReference(event);
 
   if (!reference?.user_id || !isPaidPlanType(reference.plan_type)) {
+    if (PLAN_DEACTIVATION_EVENTS.has(eventName) || MEMBERSHIP_STATUS_ONLY_EVENTS.has(eventName)) {
+      const nextStatus = MEMBERSHIP_STATUS_ONLY_EVENTS.has(eventName)
+        ? "overdue"
+        : getInactiveMembershipStatus(eventName);
+      const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
+
+      try {
+        await updateMembershipStatus({
+          subscriptionId,
+          status: nextStatus,
+          rawStatus: event.payment?.status || event.subscription?.status || null,
+          downgradeToFree: shouldDowngradeToFree,
+        });
+
+        console.info("Asaas membership status updated without externalReference", {
+          method: request.method,
+          event: eventName,
+          paymentId: event.payment?.id || null,
+          subscriptionId,
+          status: event.payment?.status || event.subscription?.status || null,
+          calculatedStatus: nextStatus,
+          profileDowngraded: shouldDowngradeToFree,
+          result: "updated",
+        });
+
+        return NextResponse.json({
+          received: true,
+          updated: true,
+          profileDowngraded: shouldDowngradeToFree,
+        });
+      } catch (error) {
+        console.error("Asaas webhook status update without externalReference failed", {
+          method: request.method,
+          event: eventName,
+          paymentId: event.payment?.id || null,
+          subscriptionId,
+          status: event.payment?.status || event.subscription?.status || null,
+          calculatedStatus: nextStatus,
+          profileDowngraded: shouldDowngradeToFree,
+          result: "failed",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+
+        return NextResponse.json({ received: false }, { status: 500 });
+      }
+    }
+
     console.warn("Asaas webhook ignored: invalid membership reference", {
       method: request.method,
       event: eventName,
@@ -254,6 +395,59 @@ export async function POST(request: Request) {
       result: "ignored",
     });
     return NextResponse.json({ received: true, ignored: true });
+  }
+
+  if (PLAN_DEACTIVATION_EVENTS.has(eventName) || MEMBERSHIP_STATUS_ONLY_EVENTS.has(eventName)) {
+    const nextStatus = MEMBERSHIP_STATUS_ONLY_EVENTS.has(eventName)
+      ? "overdue"
+      : getInactiveMembershipStatus(eventName);
+    const shouldDowngradeToFree = PLAN_DEACTIVATION_EVENTS.has(eventName);
+
+    try {
+      await updateMembershipStatus({
+        userId: reference.user_id,
+        planType: reference.plan_type,
+        subscriptionId,
+        status: nextStatus,
+        rawStatus: event.payment?.status || event.subscription?.status || null,
+        downgradeToFree: shouldDowngradeToFree,
+      });
+
+      console.info("Asaas membership status updated", {
+        method: request.method,
+        event: eventName,
+        paymentId: event.payment?.id || null,
+        subscriptionId,
+        status: event.payment?.status || event.subscription?.status || null,
+        calculatedStatus: nextStatus,
+        profileDowngraded: shouldDowngradeToFree,
+        userId: reference.user_id,
+        planType: reference.plan_type,
+        result: "updated",
+      });
+
+      return NextResponse.json({
+        received: true,
+        updated: true,
+        profileDowngraded: shouldDowngradeToFree,
+      });
+    } catch (error) {
+      console.error("Asaas webhook status update failed", {
+        method: request.method,
+        event: eventName,
+        paymentId: event.payment?.id || null,
+        subscriptionId,
+        status: event.payment?.status || event.subscription?.status || null,
+        calculatedStatus: nextStatus,
+        profileDowngraded: shouldDowngradeToFree,
+        userId: reference.user_id,
+        planType: reference.plan_type,
+        result: "failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+
+      return NextResponse.json({ received: false }, { status: 500 });
+    }
   }
 
   try {
