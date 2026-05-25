@@ -5,7 +5,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/shared/Badge";
 import { supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import type { BolaoCompetition, BolaoMatch, BolaoPrediction, BolaoTeam } from "@/lib/types/bolao";
+import type { BolaoCompetition, BolaoMatch, BolaoPrediction, BolaoRankingRow, BolaoTeam } from "@/lib/types/bolao";
 import { Info, ShieldCheck } from "lucide-react";
 
 type Tab = "palpitar" | "ranking_assinantes" | "ranking_geral";
@@ -50,6 +50,10 @@ export default function BolaoPage() {
   const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [generalRanking, setGeneralRanking] = useState<BolaoRankingRow[]>([]);
+  const [subscribersRanking, setSubscribersRanking] = useState<BolaoRankingRow[]>([]);
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [rankingError, setRankingError] = useState<string | null>(null);
 
   const loadBolao = useCallback(async () => {
     if (!user?.id) {
@@ -140,6 +144,44 @@ export default function BolaoPage() {
     void loadBolao();
   }, [loadBolao]);
 
+  const loadRanking = useCallback(async (subscribersOnly: boolean) => {
+    if (!competition?.id) {
+      return;
+    }
+
+    setRankingLoading(true);
+    setRankingError(null);
+
+    const { data, error } = await supabase.rpc("get_bolao_ranking", {
+      p_competition_id: competition.id,
+      p_subscribers_only: subscribersOnly,
+    });
+
+    if (error) {
+      setRankingError("Não foi possível carregar o ranking agora.");
+      setRankingLoading(false);
+      return;
+    }
+
+    if (subscribersOnly) {
+      setSubscribersRanking((data || []) as BolaoRankingRow[]);
+    } else {
+      setGeneralRanking((data || []) as BolaoRankingRow[]);
+    }
+
+    setRankingLoading(false);
+  }, [competition?.id]);
+
+  useEffect(() => {
+    if (activeTab === "ranking_geral") {
+      void loadRanking(false);
+    }
+
+    if (activeTab === "ranking_assinantes") {
+      void loadRanking(true);
+    }
+  }, [activeTab, loadRanking]);
+
   function updateScore(matchId: string, team: "home" | "away", value: string) {
     const parsedValue = value === "" ? "" : String(Math.max(0, Number(value)));
 
@@ -216,6 +258,105 @@ export default function BolaoPage() {
     setMessage("Palpite salvo com sucesso.");
   }
 
+  const userPredictions = Object.values(predictionsByMatch);
+  const userPointsTotal = userPredictions.reduce((total, prediction) => total + prediction.points_total, 0);
+  const userWinnerHits = userPredictions.filter((prediction) => prediction.points_winner > 0).length;
+  const userExactScoreHits = userPredictions.filter((prediction) => prediction.points_exact_score > 0).length;
+
+  function getPlanLabel(planType: string | null) {
+    if (planType === "campeao") {
+      return "Campeão";
+    }
+
+    if (planType === "camisa") {
+      return "Camisa";
+    }
+
+    return "Torcedor";
+  }
+
+  function renderRanking(rows: BolaoRankingRow[], emptyMessage: string) {
+    if (!competition) {
+      return (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+          Nenhum bolão disponível no momento.
+        </div>
+      );
+    }
+
+    if (rankingLoading) {
+      return (
+        <div className="bg-card border border-border rounded-xl p-6 text-sm text-muted-foreground">
+          Carregando ranking...
+        </div>
+      );
+    }
+
+    if (rankingError) {
+      return (
+        <div className="bg-card border border-border rounded-xl p-6 text-sm font-semibold text-danger">
+          {rankingError}
+        </div>
+      );
+    }
+
+    if (rows.length === 0) {
+      return (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+          {emptyMessage}
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-muted text-muted-foreground bg-opacity-50 border-b border-border">
+            <tr>
+              <th className="px-4 py-3 font-medium w-12 text-center">#</th>
+              <th className="px-4 py-3 font-medium">Torcedor</th>
+              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Plano</th>
+              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">V/E</th>
+              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Exatos</th>
+              <th className="px-4 py-3 font-medium hidden lg:table-cell text-center">Palpites</th>
+              <th className="px-4 py-3 font-black text-right">Pts</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map((row) => (
+              <tr key={row.user_id} className="hover:bg-muted/10 transition-colors">
+                <td className="px-4 py-4 text-muted-foreground font-bold text-center">
+                  {row.position}
+                </td>
+                <td className="px-4 py-4">
+                  <div>
+                    <p className="font-bold text-foreground">{row.full_name || row.username || "Torcedor"}</p>
+                    {row.username && <p className="text-xs text-muted-foreground">@{row.username}</p>}
+                  </div>
+                </td>
+                <td className="px-4 py-4 hidden md:table-cell text-center">
+                  <Badge variant={row.plan_type === "torcedor" ? "gray" : "yellow"}>{getPlanLabel(row.plan_type)}</Badge>
+                </td>
+                <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">
+                  {row.winner_hits}
+                </td>
+                <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">
+                  {row.exact_score_hits}
+                </td>
+                <td className="px-4 py-4 text-muted-foreground hidden lg:table-cell text-center">
+                  {row.predictions_count}
+                </td>
+                <td className="px-4 py-4 font-black text-accent text-right text-base">
+                  {row.points_total}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between border-b border-border pb-1">
@@ -254,8 +395,8 @@ export default function BolaoPage() {
       {showRules && (
         <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
           <p className="font-bold text-foreground mb-2">Regras do Bolão</p>
-          <p>3 pontos por acertar vencedor ou empate.</p>
-          <p>+2 pontos extras por acertar o placar exato.</p>
+          <p>{competition?.points_winner || 3} pontos por acertar vencedor ou empate.</p>
+          <p>+{competition?.points_exact_score || 2} pontos extras por acertar o placar exato.</p>
           <p>Desempate: maior número de placares exatos e, depois, quem palpitou primeiro.</p>
         </div>
       )}
@@ -293,17 +434,15 @@ export default function BolaoPage() {
             <div className="bg-card border border-border rounded-xl p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center divide-y md:divide-y-0 md:divide-x divide-border">
               <div className="py-2 md:py-0">
                 <p className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Seus Pontos</p>
-                <p className="text-3xl font-bold text-accent">
-                  {Object.values(predictionsByMatch).reduce((total, prediction) => total + prediction.points_total, 0)} PONTOS
-                </p>
+                <p className="text-3xl font-bold text-accent">{userPointsTotal} PONTOS</p>
               </div>
               <div className="py-2 md:py-0">
-                <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Vencedor ou empate</p>
-                <p className="text-2xl font-bold text-foreground">{competition.points_winner}</p>
+                <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Acertos V/E</p>
+                <p className="text-2xl font-bold text-foreground">{userWinnerHits}</p>
               </div>
               <div className="py-2 md:py-0">
-                <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Placar exato extra</p>
-                <p className="text-2xl font-bold text-foreground">+{competition.points_exact_score}</p>
+                <p className="text-[10px] md:text-xs text-muted-foreground font-bold uppercase tracking-wider mb-1">Placares exatos</p>
+                <p className="text-2xl font-bold text-foreground">{userExactScoreHits}</p>
               </div>
             </div>
           )}
@@ -373,10 +512,20 @@ export default function BolaoPage() {
                     </div>
 
                     {match.status === "finished" && (
-                      <p className="mt-4 text-center text-sm text-muted-foreground">
-                        Resultado oficial: <span className="font-bold text-foreground">{match.home_score ?? "-"} x {match.away_score ?? "-"}</span>
-                        {prediction && <> • Sua pontuação: <span className="font-bold text-accent">{prediction.points_total}</span></>}
-                      </p>
+                      <div className="mt-4 text-center text-sm text-muted-foreground">
+                        <p>
+                          Resultado oficial: <span className="font-bold text-foreground">{match.home_score ?? "-"} x {match.away_score ?? "-"}</span>
+                        </p>
+                        {prediction && (
+                          <p className="mt-1">
+                            V/E: <span className="font-bold text-foreground">{prediction.points_winner}</span>
+                            {" • "}
+                            Exato: <span className="font-bold text-foreground">{prediction.points_exact_score}</span>
+                            {" • "}
+                            Total: <span className="font-bold text-accent">{prediction.points_total}</span>
+                          </p>
+                        )}
+                      </div>
                     )}
 
                     {!canEdit && match.status !== "finished" && (
@@ -406,11 +555,15 @@ export default function BolaoPage() {
       )}
 
       {(activeTab === "ranking_geral" || activeTab === "ranking_assinantes") && (
-        <div className="bg-card border border-border rounded-xl p-6 text-center">
-          <p className="text-lg font-bold text-foreground">Ranking será liberado após os primeiros resultados.</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Assim que os jogos forem finalizados e pontuados, esta aba passa a exibir a classificação.
-          </p>
+        <div className="space-y-4">
+          {activeTab === "ranking_assinantes" && (
+            <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
+              Assine um plano para concorrer aos prêmios exclusivos.
+            </div>
+          )}
+          {activeTab === "ranking_geral"
+            ? renderRanking(generalRanking, "Ainda não há ranking para esta competição.")
+            : renderRanking(subscribersRanking, "Ainda não há assinantes no ranking.")}
         </div>
       )}
     </div>

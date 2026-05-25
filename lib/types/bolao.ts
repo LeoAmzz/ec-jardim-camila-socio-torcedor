@@ -75,7 +75,9 @@ export interface BolaoRankingRow {
   avatar_url: string | null;
   plan_type: string | null;
   points_total: number;
-  exact_scores: number;
-  winners: number;
+  winner_hits: number;
+  exact_score_hits: number;
+  predictions_count: number;
+  first_prediction_at: string | null;
   position: number;
 }
