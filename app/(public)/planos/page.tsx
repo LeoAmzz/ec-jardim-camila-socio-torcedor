@@ -462,8 +462,8 @@ function PlanosContent() {
             ) : membership ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                 {(membership.status === "inactive_pending_webhook" || membership.status === "cancelled_at_period_end" || membership.status === "delete_requested") && (
-                  <div className="rounded-xl border border-accent/30 bg-accent/10 p-4 text-accent sm:col-span-2 lg:col-span-4">
-                    <p className="font-semibold">
+                  <div className="rounded-xl border border-accent/60 bg-accent/15 p-4 text-foreground shadow-sm shadow-accent/10 sm:col-span-2 lg:col-span-4">
+                    <p className="font-bold text-accent">
                       Cancelada, com acesso até {formatDate(membership.access_until || membership.ended_at)}.
                     </p>
                   </div>
