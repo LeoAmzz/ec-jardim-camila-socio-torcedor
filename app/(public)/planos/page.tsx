@@ -165,6 +165,10 @@ function PlanosContent() {
     return status === "active" || status === "confirmed" || status === "received";
   }
 
+  function isCancelledWithAccess(status?: string | null) {
+    return status === "cancelled_at_period_end" && Boolean(membership?.access_until);
+  }
+
   function formatDate(date: string | null) {
     if (!date) {
       return "Não informado";
@@ -177,6 +181,18 @@ function PlanosContent() {
       hour: "2-digit",
       minute: "2-digit",
     }).format(new Date(date));
+  }
+
+  function getCurrentPlanCardStatus(plan: Exclude<PlanType, "torcedor">) {
+    if (!isCurrentPlan(plan)) {
+      return null;
+    }
+
+    if (membership?.plan_type === plan && isCancelledWithAccess(membership.status)) {
+      return `Acesso ativo até ${formatDate(membership.access_until)}`;
+    }
+
+    return "Assinatura ativa";
   }
 
   async function handleChoosePlan(plan: PlanType) {
@@ -356,8 +372,8 @@ function PlanosContent() {
               </div>
               <div className="text-3xl font-bold text-foreground mb-1">R$ 15,00<span className="text-sm font-normal text-muted-foreground">/mês</span></div>
               <p className="text-muted-foreground text-sm">O plano perfeito para os fanáticos.</p>
-              {isCurrentPlan("camisa") && (
-                <p className="mt-2 text-xs font-semibold text-accent">Assinatura ativa</p>
+              {getCurrentPlanCardStatus("camisa") && (
+                <p className="mt-2 text-xs font-semibold text-accent">{getCurrentPlanCardStatus("camisa")}</p>
               )}
             </div>
             
@@ -400,8 +416,8 @@ function PlanosContent() {
               </div>
               <div className="text-3xl font-bold text-foreground mb-1">R$ 39,90<span className="text-sm font-normal text-muted-foreground">/mês</span></div>
               <p className="text-muted-foreground text-sm">Para os verdadeiros líderes da torcida.</p>
-              {isCurrentPlan("campeao") && (
-                <p className="mt-2 text-xs font-semibold text-accent">Assinatura ativa</p>
+              {getCurrentPlanCardStatus("campeao") && (
+                <p className="mt-2 text-xs font-semibold text-accent">{getCurrentPlanCardStatus("campeao")}</p>
               )}
             </div>
             
