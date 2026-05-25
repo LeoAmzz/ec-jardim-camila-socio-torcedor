@@ -6,22 +6,47 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
+type SignupError = {
+  message: string;
+  status?: number;
+  code?: string;
+};
+
 function getSignupErrorMessage(message: string) {
   const normalizedMessage = message.toLowerCase();
 
-  if (normalizedMessage.includes("user already registered")) {
-    return "Já existe uma conta com este email.";
+  if (
+    normalizedMessage.includes("user already registered") ||
+    normalizedMessage.includes("already registered") ||
+    normalizedMessage.includes("already exists") ||
+    normalizedMessage.includes("duplicate")
+  ) {
+    return "Este e-mail já possui cadastro. Tente entrar ou recuperar a senha.";
+  }
+
+  if (
+    normalizedMessage.includes("database") ||
+    normalizedMessage.includes("profile") ||
+    normalizedMessage.includes("trigger") ||
+    normalizedMessage.includes("duplicate key") ||
+    normalizedMessage.includes("violates unique constraint")
+  ) {
+    return "Não foi possível criar seu perfil. Verifique se já existe um cadastro com este e-mail ou usuário.";
   }
 
   if (normalizedMessage.includes("password")) {
     return "A senha precisa atender aos requisitos mínimos.";
   }
 
-  if (normalizedMessage.includes("email")) {
-    return "Confira o email informado e tente novamente.";
+  if (
+    normalizedMessage.includes("invalid email") ||
+    normalizedMessage.includes("email address is invalid") ||
+    normalizedMessage.includes("unable to validate email")
+  ) {
+    return "Confira o e-mail informado.";
   }
 
-  return "Não foi possível criar sua conta agora. Tente novamente em instantes.";
+  return message || "Não foi possível criar sua conta agora. Tente novamente em instantes.";
 }
 
 function buildUsername(fullName: string, email: string) {
@@ -105,6 +130,14 @@ export default function CadastroPage() {
     setIsLoading(false);
 
     if (error) {
+      const signupError = error as SignupError;
+
+      console.error("Supabase signup failed", {
+        message: signupError.message,
+        status: signupError.status,
+        code: signupError.code,
+      });
+
       setMessage(getSignupErrorMessage(error.message));
       return;
     }
