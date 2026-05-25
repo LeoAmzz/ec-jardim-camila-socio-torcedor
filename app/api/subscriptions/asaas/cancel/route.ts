@@ -7,6 +7,8 @@ type Membership = {
   id: string;
   provider_subscription_id: string | null;
   status: string;
+  started_at: string | null;
+  access_until: string | null;
 };
 
 type AsaasErrorBody = {
@@ -64,6 +66,17 @@ function getFutureIsoDate(date?: string | null) {
   }
 
   return parsed.toISOString();
+}
+
+function getOneMonthFromDateIso(date?: string | null) {
+  const baseDate = date ? new Date(date) : new Date();
+
+  if (Number.isNaN(baseDate.getTime())) {
+    baseDate.setTime(Date.now());
+  }
+
+  baseDate.setMonth(baseDate.getMonth() + 1);
+  return baseDate.toISOString();
 }
 
 async function getSubscriptionAccessUntil(params: {
@@ -129,7 +142,7 @@ export async function POST(request: Request) {
   const supabaseAdmin = getSupabaseAdminClient();
   const { data: membership, error: membershipError } = await supabaseAdmin
     .from("memberships")
-    .select("id,provider_subscription_id,status")
+    .select("id,provider_subscription_id,status,started_at,access_until")
     .eq("user_id", user.id)
     .eq("provider", "asaas")
     .in("status", ["active", "confirmed", "received"])
@@ -174,7 +187,28 @@ export async function POST(request: Request) {
     apiKey: asaasApiKey,
     baseUrl: asaasBaseUrl,
     subscriptionId: membership.provider_subscription_id,
-  });
+  }) || getFutureIsoDate(membership.access_until) || getOneMonthFromDateIso(membership.started_at);
+  const now = new Date().toISOString();
+  const { error: pendingUpdateError } = await supabaseAdmin
+    .from("memberships")
+    .update({
+      status: "inactive_pending_webhook",
+      raw_status: "INACTIVE_REQUESTED",
+      access_until: accessUntil,
+      ended_at: accessUntil,
+      last_event_at: now,
+    })
+    .eq("id", membership.id)
+    .eq("user_id", user.id);
+
+  if (pendingUpdateError) {
+    console.error("Asaas cancellation pre-update failed", {
+      userId: user.id,
+      subscriptionId: membership.provider_subscription_id,
+      error: pendingUpdateError.message,
+    });
+  }
+
   const cancelResponse = await fetch(subscriptionUrl, {
     method: "PUT",
     headers: createAsaasHeaders(asaasApiKey),
@@ -240,13 +274,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const now = new Date().toISOString();
   const { error: updateError } = await supabaseAdmin
     .from("memberships")
     .update({
       status: requestStatus,
       raw_status: rawStatus,
       access_until: accessUntil,
+      ended_at: accessUntil,
       last_event_at: now,
     })
     .eq("id", membership.id)

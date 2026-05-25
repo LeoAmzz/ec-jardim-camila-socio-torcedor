@@ -142,16 +142,20 @@ function PlanosContent() {
       return "Pendente";
     }
 
-    if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
-      return "Cancelada";
+    if (
+      normalizedStatus === "inactive_pending_webhook" ||
+      normalizedStatus === "cancelled_at_period_end" ||
+      normalizedStatus === "delete_requested"
+    ) {
+      return "Cancelada, com acesso até o fim do período";
     }
 
-    if (normalizedStatus === "cancelled_at_period_end") {
-      return "Cancelada ao fim do período";
-    }
-
-    if (normalizedStatus === "inactive") {
+    if (normalizedStatus === "cancelled" || normalizedStatus === "canceled" || normalizedStatus === "inactive") {
       return "Inativa";
+    }
+
+    if (normalizedStatus === "refunded") {
+      return "Estornada";
     }
 
     return status || rawStatus || "Status não informado";
@@ -441,7 +445,7 @@ function PlanosContent() {
               <p className="text-sm font-semibold text-accent">{membershipError}</p>
             ) : membership ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                {membership.status === "cancelled_at_period_end" && (
+                {(membership.status === "inactive_pending_webhook" || membership.status === "cancelled_at_period_end" || membership.status === "delete_requested") && (
                   <div className="rounded-xl border border-accent/30 bg-accent/10 p-4 text-accent sm:col-span-2 lg:col-span-4">
                     <p className="font-semibold">
                       Cancelada, com acesso até {formatDate(membership.access_until || membership.ended_at)}.
@@ -464,6 +468,12 @@ function PlanosContent() {
                   <p className="text-muted-foreground">Início</p>
                   <p className="mt-1 font-bold text-foreground">{formatDate(membership.started_at || membership.created_at)}</p>
                 </div>
+                {membership.access_until && (
+                  <div className="rounded-xl bg-muted/40 p-4 sm:col-span-2">
+                    <p className="text-muted-foreground">Acesso até</p>
+                    <p className="mt-1 font-bold text-foreground">{formatDate(membership.access_until)}</p>
+                  </div>
+                )}
                 <div className="rounded-xl bg-muted/40 p-4 sm:col-span-2 lg:col-span-4">
                   <p className="text-muted-foreground">Última atualização</p>
                   <p className="mt-1 font-bold text-foreground">{formatDate(membership.last_event_at || membership.created_at)}</p>

@@ -37,6 +37,12 @@ function getFutureIsoDate(date?: string | null) {
   return parsed.toISOString();
 }
 
+function getOneMonthFromNowIso() {
+  const nextMonth = new Date();
+  nextMonth.setMonth(nextMonth.getMonth() + 1);
+  return nextMonth.toISOString();
+}
+
 function getWebhookToken(request: Request) {
   return request.headers.get("asaas-access-token");
 }
@@ -535,7 +541,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const accessUntil = await resolveSubscriptionNextDueDate(event, subscriptionId);
+    const accessUntil = await resolveSubscriptionNextDueDate(event, subscriptionId) || getOneMonthFromNowIso();
 
     await activateMembership({
       userId: reference.user_id,
