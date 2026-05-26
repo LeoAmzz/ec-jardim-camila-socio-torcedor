@@ -1,4 +1,3 @@
-import { Medal } from "lucide-react";
 import { Badge } from "@/components/shared/Badge";
 import type { BolaoRankingRow } from "@/lib/types/bolao";
 import { cn } from "@/lib/utils";

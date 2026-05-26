@@ -227,7 +227,7 @@ export default function BolaoDetailPage() {
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
           {topRows.map((row, index) => (
             <TopRankingCard key={row.user_id} row={row} index={index} />
           ))}
