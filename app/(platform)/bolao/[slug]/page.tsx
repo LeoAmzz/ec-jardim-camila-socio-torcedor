@@ -7,8 +7,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/shared/Badge";
 import { supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import type { BolaoCompetition, BolaoMatch, BolaoPrediction, BolaoRankingRow, BolaoTeam } from "@/lib/types/bolao";
-import { Info, ShieldCheck } from "lucide-react";
+import type { BolaoCompetition, BolaoMatch, BolaoPrediction, BolaoPrize, BolaoRankingRow, BolaoTeam } from "@/lib/types/bolao";
+import { Info, Medal, ShieldCheck, Trophy } from "lucide-react";
 
 type Tab = "palpitar" | "ranking_assinantes" | "ranking_geral";
 type ScoreDraft = { home: string; away: string };
@@ -64,6 +64,37 @@ function TeamLogo({ team, tone }: { team: MatchWithTeams["home_team"]; tone: "ho
   );
 }
 
+function getInitials(row: BolaoRankingRow) {
+  const name = row.full_name || row.username || "Torcedor";
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+function RankingAvatar({ row, featured = false }: { row: BolaoRankingRow; featured?: boolean }) {
+  const sizeClass = featured ? "h-16 w-16 text-lg" : "h-10 w-10 text-xs";
+
+  if (row.avatar_url) {
+    return (
+      <img
+        src={row.avatar_url}
+        alt={`Avatar de ${row.full_name || row.username || "torcedor"}`}
+        className={cn(sizeClass, "rounded-full border-2 border-background bg-card object-cover shadow-md")}
+      />
+    );
+  }
+
+  return (
+    <div className={cn(sizeClass, "flex items-center justify-center rounded-full border-2 border-background bg-primary font-black text-white shadow-md")}>
+      {getInitials(row)}
+    </div>
+  );
+}
+
 export default function BolaoDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -79,6 +110,7 @@ export default function BolaoDetailPage() {
   const [showRules, setShowRules] = useState(false);
   const [generalRanking, setGeneralRanking] = useState<BolaoRankingRow[]>([]);
   const [subscribersRanking, setSubscribersRanking] = useState<BolaoRankingRow[]>([]);
+  const [prizes, setPrizes] = useState<BolaoPrize[]>([]);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState<string | null>(null);
 
@@ -145,6 +177,20 @@ export default function BolaoDetailPage() {
     if (predictionsError) {
       setPredictionsByMatch({});
       setMessage("Não foi possível carregar seus palpites agora.");
+    }
+
+    const { data: prizeRows, error: prizesError } = await supabase
+      .from("bolao_prizes")
+      .select("*")
+      .eq("competition_id", selectedCompetition.id)
+      .order("ranking_type", { ascending: true })
+      .order("position", { ascending: true })
+      .returns<BolaoPrize[]>();
+
+    if (prizesError) {
+      setPrizes([]);
+    } else {
+      setPrizes(prizeRows || []);
     }
 
     const nextPredictions = (predictionRows || []).reduce<Record<string, BolaoPrediction>>((acc, prediction) => {
@@ -306,6 +352,110 @@ export default function BolaoDetailPage() {
     return "Torcedor";
   }
 
+  function renderPrizeList(rankingType: BolaoPrize["ranking_type"], title: string) {
+    const filteredPrizes = prizes.filter((prize) => prize.ranking_type === rankingType);
+
+    if (filteredPrizes.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-3">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-accent">{title}</p>
+        {filteredPrizes.map((prize) => (
+          <div key={prize.id} className="flex gap-3 rounded-xl border border-border bg-background/60 p-3">
+            {prize.image_url ? (
+              <img src={prize.image_url} alt={prize.title} className="h-14 w-14 rounded-lg border border-border object-cover" />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card text-accent">
+                <Trophy size={24} />
+              </div>
+            )}
+            <div>
+              <p className="text-sm font-black text-foreground">{prize.position}º lugar • {prize.title}</p>
+              {prize.description && <p className="mt-1 text-xs text-muted-foreground">{prize.description}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderPrizes() {
+    return (
+      <aside className="rounded-2xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent/15 text-accent">
+            <Trophy size={18} />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Premiação</p>
+            <h3 className="text-lg font-black text-foreground">Prêmios do Bolão</h3>
+          </div>
+        </div>
+
+        {prizes.length === 0 ? (
+          <p className="mt-4 rounded-xl border border-border bg-background/60 p-4 text-sm text-muted-foreground">
+            Premiação será divulgada em breve.
+          </p>
+        ) : (
+          <div className="mt-4 space-y-5">
+            {renderPrizeList("general", "Ranking Geral")}
+            {renderPrizeList("subscribers", "Ranking Assinantes")}
+          </div>
+        )}
+      </aside>
+    );
+  }
+
+  function renderTopCard(row: BolaoRankingRow, index: number) {
+    const medalStyles = [
+      "border-accent/60 bg-accent/10",
+      "border-slate-300/40 bg-slate-300/10",
+      "border-orange-400/50 bg-orange-400/10",
+    ];
+
+    return (
+      <div key={row.user_id} className={cn("relative overflow-hidden rounded-2xl border p-5", medalStyles[index] || "border-border bg-card")}>
+        <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-white/5" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <RankingAvatar row={row} featured />
+            <div>
+              <div className="flex items-center gap-2">
+                <Medal size={18} className="text-accent" />
+                <span className="text-xs font-black uppercase tracking-wider text-accent">{row.position}º lugar</span>
+              </div>
+              <p className="mt-1 text-lg font-black text-foreground">{row.full_name || row.username || "Torcedor"}</p>
+              {row.username && <p className="text-xs text-muted-foreground">@{row.username}</p>}
+            </div>
+          </div>
+          <Badge variant={row.plan_type === "torcedor" ? "gray" : "yellow"}>{getPlanLabel(row.plan_type)}</Badge>
+        </div>
+
+        <div className="relative mt-5">
+          <p className="text-4xl font-black text-accent">{row.points_total}</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">pontos</p>
+        </div>
+
+        <div className="relative mt-4 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border border-border bg-background/70 p-2">
+            <p className="text-lg font-black text-foreground">{row.winner_hits}</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">V/E</p>
+          </div>
+          <div className="rounded-xl border border-border bg-background/70 p-2">
+            <p className="text-lg font-black text-foreground">{row.exact_score_hits}</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">Exatos</p>
+          </div>
+          <div className="rounded-xl border border-border bg-background/70 p-2">
+            <p className="text-lg font-black text-foreground">{row.predictions_count}</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground">Palpites</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderRanking(rows: BolaoRankingRow[], emptyMessage: string) {
     if (!competition) {
       return (
@@ -339,41 +489,55 @@ export default function BolaoDetailPage() {
       );
     }
 
+    const topRows = rows.slice(0, 3);
+    const remainingRows = rows.slice(3);
+
     return (
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-muted text-muted-foreground bg-opacity-50 border-b border-border">
-            <tr>
-              <th className="px-4 py-3 font-medium w-12 text-center">#</th>
-              <th className="px-4 py-3 font-medium">Torcedor</th>
-              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Plano</th>
-              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">V/E</th>
-              <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Exatos</th>
-              <th className="px-4 py-3 font-medium hidden lg:table-cell text-center">Palpites</th>
-              <th className="px-4 py-3 font-black text-right">Pts</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((row) => (
-              <tr key={row.user_id} className="hover:bg-muted/10 transition-colors">
-                <td className="px-4 py-4 text-muted-foreground font-bold text-center">{row.position}</td>
-                <td className="px-4 py-4">
-                  <div>
-                    <p className="font-bold text-foreground">{row.full_name || row.username || "Torcedor"}</p>
-                    {row.username && <p className="text-xs text-muted-foreground">@{row.username}</p>}
-                  </div>
-                </td>
-                <td className="px-4 py-4 hidden md:table-cell text-center">
-                  <Badge variant={row.plan_type === "torcedor" ? "gray" : "yellow"}>{getPlanLabel(row.plan_type)}</Badge>
-                </td>
-                <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">{row.winner_hits}</td>
-                <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">{row.exact_score_hits}</td>
-                <td className="px-4 py-4 text-muted-foreground hidden lg:table-cell text-center">{row.predictions_count}</td>
-                <td className="px-4 py-4 font-black text-accent text-right text-base">{row.points_total}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+          {topRows.map((row, index) => renderTopCard(row, index))}
+        </div>
+
+        {remainingRows.length > 0 && (
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted text-muted-foreground bg-opacity-50 border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 font-medium w-12 text-center">#</th>
+                  <th className="px-4 py-3 font-medium">Torcedor</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Plano</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell text-center">V/E</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell text-center">Exatos</th>
+                  <th className="px-4 py-3 font-medium hidden lg:table-cell text-center">Palpites</th>
+                  <th className="px-4 py-3 font-black text-right">Pts</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {remainingRows.map((row) => (
+                  <tr key={row.user_id} className="hover:bg-muted/10 transition-colors">
+                    <td className="px-4 py-4 text-muted-foreground font-bold text-center">{row.position}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <RankingAvatar row={row} />
+                        <div>
+                          <p className="font-bold text-foreground">{row.full_name || row.username || "Torcedor"}</p>
+                          {row.username && <p className="text-xs text-muted-foreground">@{row.username}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 hidden md:table-cell text-center">
+                      <Badge variant={row.plan_type === "torcedor" ? "gray" : "yellow"}>{getPlanLabel(row.plan_type)}</Badge>
+                    </td>
+                    <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">{row.winner_hits}</td>
+                    <td className="px-4 py-4 text-muted-foreground hidden md:table-cell text-center">{row.exact_score_hits}</td>
+                    <td className="px-4 py-4 text-muted-foreground hidden lg:table-cell text-center">{row.predictions_count}</td>
+                    <td className="px-4 py-4 font-black text-accent text-right text-base">{row.points_total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     );
   }
@@ -430,11 +594,34 @@ export default function BolaoDetailPage() {
       </div>
 
       {showRules && (
-        <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
-          <p className="font-bold text-foreground mb-2">Regras do Bolão</p>
-          <p>{competition?.points_winner || 3} pontos por acertar vencedor ou empate.</p>
-          <p>+{competition?.points_exact_score || 2} pontos extras por acertar o placar exato.</p>
-          <p>Desempate: maior número de placares exatos e, depois, quem palpitou primeiro.</p>
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
+          <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/10" />
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <Info size={20} />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Regulamento</p>
+              <p className="text-lg font-black text-foreground">Como pontuar no Bolão</p>
+            </div>
+          </div>
+          <div className="relative mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-2xl font-black text-accent">{competition?.points_winner || 3}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">pontos</p>
+              <p className="mt-2 text-foreground">Acertar vencedor ou empate.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-2xl font-black text-accent">+{competition?.points_exact_score || 2}</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">extras</p>
+              <p className="mt-2 text-foreground">Acertar o placar exato.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-sm font-black uppercase tracking-wider text-accent">Desempate</p>
+              <p className="mt-2 text-foreground">1. mais placares exatos</p>
+              <p className="text-foreground">2. quem palpitou primeiro</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -567,15 +754,30 @@ export default function BolaoDetailPage() {
       )}
 
       {(activeTab === "ranking_geral" || activeTab === "ranking_assinantes") && (
-        <div className="space-y-4">
-          {activeTab === "ranking_assinantes" && (
-            <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
-              Assine um plano para concorrer aos prêmios exclusivos.
-            </div>
-          )}
-          {activeTab === "ranking_geral"
-            ? renderRanking(generalRanking, "Ainda não há ranking para esta competição.")
-            : renderRanking(subscribersRanking, "Ainda não há assinantes no ranking.")}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_320px]">
+          <div className="space-y-4">
+            {activeTab === "ranking_assinantes" && profile?.plan_type === "torcedor" && (
+              <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
+                Assine um plano para concorrer aos prêmios exclusivos.
+              </div>
+            )}
+            {activeTab === "ranking_geral"
+              ? renderRanking(
+                  generalRanking,
+                  matches.some((match) => match.status === "finished")
+                    ? "Ainda não há participantes ranqueados."
+                    : "O ranking será atualizado após os primeiros resultados oficiais.",
+                )
+              : renderRanking(
+                  subscribersRanking,
+                  matches.some((match) => match.status === "finished")
+                    ? "Ainda não há participantes ranqueados."
+                    : "O ranking será atualizado após os primeiros resultados oficiais.",
+                )}
+          </div>
+          <div>
+            {renderPrizes()}
+          </div>
         </div>
       )}
     </div>
