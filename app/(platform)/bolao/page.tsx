@@ -55,14 +55,15 @@ function formatPeriod(start: string | null, end: string | null) {
 
 function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
   const period = formatPeriod(competition.starts_at, competition.ends_at);
+  const isOpen = competition.status === "open";
 
   return (
-    <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
-      <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/10" />
+    <div className={`relative overflow-hidden bg-card border rounded-2xl p-5 flex flex-col gap-4 ${isOpen ? "border-primary/50 shadow-[0_0_0_1px_rgba(59,130,246,0.12)]" : "border-border"}`}>
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full ${isOpen ? "bg-primary/20" : "bg-primary/10"}`} />
       <div className="pointer-events-none absolute -bottom-12 left-8 h-24 w-24 rounded-full bg-accent/10" />
       <div className="flex items-start justify-between gap-3">
         <div className="relative">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-accent">Bolão</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-accent">{isOpen ? "Bolão aberto" : "Bolão"}</p>
           <h2 className="mt-1 text-2xl font-black leading-tight text-foreground">{competition.name}</h2>
           {competition.description && (
             <p className="mt-2 text-sm text-muted-foreground">{competition.description}</p>
@@ -83,7 +84,7 @@ function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
 
       <Link
         href={`/bolao/${competition.slug}`}
-        className="relative mt-auto rounded-xl bg-primary px-4 py-3 text-center text-sm font-black uppercase tracking-wide text-white transition-colors hover:bg-primary-light"
+        className={`relative mt-auto rounded-xl px-4 py-3 text-center text-sm font-black uppercase tracking-wide transition-colors ${isOpen ? "bg-primary text-white hover:bg-primary-light" : "border border-border text-foreground hover:border-primary/60 hover:text-accent"}`}
       >
         {getButtonLabel(competition.status)}
       </Link>

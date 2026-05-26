@@ -14,8 +14,9 @@ type MatchWithTeams = BolaoMatch & {
 const competitionStatuses = ["draft", "open", "closed", "finished", "archived"] as const;
 const matchStatuses = ["scheduled", "open", "locked", "finished", "cancelled"] as const;
 const prizeRankingTypes = ["general", "subscribers"] as const;
-const teamLogoMimeTypes = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+const imageMimeTypes = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
 const maxTeamLogoSize = 2 * 1024 * 1024;
+const maxPrizeImageSize = 3 * 1024 * 1024;
 
 function fromDateTimeLocal(value: string) {
   return value ? new Date(value).toISOString() : null;
@@ -95,12 +96,24 @@ function getSupabaseErrorMessage(
 }
 
 function getTeamLogoValidationMessage(file: File) {
-  if (!teamLogoMimeTypes.includes(file.type)) {
+  if (!imageMimeTypes.includes(file.type)) {
     return "Tipo de arquivo inválido.";
   }
 
   if (file.size > maxTeamLogoSize) {
     return "Logo muito pesado. Envie uma imagem de até 2MB.";
+  }
+
+  return null;
+}
+
+function getPrizeImageValidationMessage(file: File) {
+  if (!imageMimeTypes.includes(file.type)) {
+    return "Tipo de imagem inválido.";
+  }
+
+  if (file.size > maxPrizeImageSize) {
+    return "Imagem muito pesada. Envie até 3MB.";
   }
 
   return null;
@@ -630,10 +643,21 @@ export default function BolaoAdminPage() {
     const competitionId = String(formData.get("competition_id") || selectedCompetitionId);
     const position = Number(formData.get("position") || 0);
     const title = String(formData.get("title") || "").trim();
+    const imageFileEntry = formData.get("image_file");
+    const imageFile = imageFileEntry instanceof File && imageFileEntry.size > 0 ? imageFileEntry : null;
 
     if (!competitionId || !Number.isInteger(position) || position <= 0 || !title) {
       setMessage("Informe a posição e o título do prêmio.");
       return;
+    }
+
+    if (imageFile) {
+      const validationMessage = getPrizeImageValidationMessage(imageFile);
+
+      if (validationMessage) {
+        setMessage(validationMessage);
+        return;
+      }
     }
 
     setSaving(true);
@@ -648,22 +672,57 @@ export default function BolaoAdminPage() {
       image_url: String(formData.get("image_url") || "").trim() || null,
     };
 
-    const { error } = editingPrize
-      ? await supabase.from("bolao_prizes").update(payload).eq("id", editingPrize.id)
-      : await supabase.from("bolao_prizes").insert(payload);
+    const saveResult = editingPrize
+      ? await supabase.from("bolao_prizes").update(payload).eq("id", editingPrize.id).select("*").single<BolaoPrize>()
+      : await supabase.from("bolao_prizes").insert(payload).select("*").single<BolaoPrize>();
 
-    setSaving(false);
-
-    if (error) {
-      logSupabaseError("Bolao prize save failed", error);
-      setMessage(getSupabaseErrorMessage(error, "Não foi possível salvar o prêmio."));
+    if (saveResult.error || !saveResult.data) {
+      setSaving(false);
+      logSupabaseError("Bolao prize save failed", saveResult.error || { message: "Prêmio não retornado pelo Supabase." });
+      setMessage(getSupabaseErrorMessage(saveResult.error || {}, "Não foi possível salvar o prêmio."));
       return;
     }
 
+    let imageMessage = "";
+
+    if (imageFile) {
+      const extension = getTeamLogoExtension(imageFile);
+      const storagePath = `${competitionId}/${saveResult.data.id}/image.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("prize-images")
+        .upload(storagePath, imageFile, {
+          contentType: imageFile.type,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        setSaving(false);
+        logSupabaseError("Bolao prize image upload failed", uploadError);
+        setMessage("Não foi possível enviar a imagem do prêmio.");
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("prize-images").getPublicUrl(storagePath);
+      const { error: imageUpdateError } = await supabase
+        .from("bolao_prizes")
+        .update({ image_url: publicUrlData.publicUrl })
+        .eq("id", saveResult.data.id);
+
+      if (imageUpdateError) {
+        setSaving(false);
+        logSupabaseError("Bolao prize image url update failed", imageUpdateError);
+        setMessage(getSupabaseErrorMessage(imageUpdateError, "Imagem enviada, mas não foi possível salvar a URL no prêmio."));
+        return;
+      }
+
+      imageMessage = " Imagem do prêmio enviada com sucesso.";
+    }
+
+    setSaving(false);
     event.currentTarget.reset();
     setEditingPrize(null);
     setSelectedCompetitionId(competitionId);
-    setMessage(editingPrize ? "Prêmio atualizado com sucesso." : "Prêmio criado com sucesso.");
+    setMessage(`${editingPrize ? "Prêmio atualizado com sucesso." : "Prêmio criado com sucesso."}${imageMessage}`);
     await loadAdminData(competitionId);
   }
 
@@ -992,32 +1051,63 @@ export default function BolaoAdminPage() {
         <form
           key={editingPrize?.id || "new-prize"}
           onSubmit={savePrize}
-          className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"
+          className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3"
         >
-          <select name="competition_id" defaultValue={editingPrize?.competition_id || selectedCompetitionId} required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground">
-            <option value="">Competição</option>
-            {competitions.map((competition) => (
-              <option key={competition.id} value={competition.id}>{competition.name}</option>
-            ))}
-          </select>
-          <select name="ranking_type" defaultValue={editingPrize?.ranking_type || "general"} required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground">
-            {prizeRankingTypes.map((rankingType) => (
-              <option key={rankingType} value={rankingType}>{getPrizeRankingLabel(rankingType)}</option>
-            ))}
-          </select>
-          <input name="position" type="number" min={1} defaultValue={editingPrize?.position || 1} placeholder="Posição" required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
-          <input name="title" defaultValue={editingPrize?.title || ""} placeholder="Título do prêmio" required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
-          <input name="image_url" defaultValue={editingPrize?.image_url || ""} placeholder="URL da imagem" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
-          <input name="description" defaultValue={editingPrize?.description || ""} placeholder="Descrição" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          {editingPrize?.image_url && (
+            <div className="md:col-span-3 flex items-center gap-3 rounded-xl border border-border bg-background p-3">
+              <img src={editingPrize.image_url} alt={editingPrize.title} className="h-16 w-16 rounded-xl border border-border object-cover" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Imagem atual</p>
+                <p className="text-xs text-muted-foreground">Envie uma nova imagem para substituir.</p>
+              </div>
+            </div>
+          )}
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Competição
+            <select name="competition_id" defaultValue={editingPrize?.competition_id || selectedCompetitionId} required className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground">
+              <option value="">Competição</option>
+              {competitions.map((competition) => (
+                <option key={competition.id} value={competition.id}>{competition.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Ranking
+            <select name="ranking_type" defaultValue={editingPrize?.ranking_type || "general"} required className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground">
+              {prizeRankingTypes.map((rankingType) => (
+                <option key={rankingType} value={rankingType}>{getPrizeRankingLabel(rankingType)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Posição
+            <input name="position" type="number" min={1} defaultValue={editingPrize?.position || 1} placeholder="Ex: 1" required className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground" />
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Título
+            <input name="title" defaultValue={editingPrize?.title || ""} placeholder="Ex: Camisa oficial" required className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground" />
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            URL manual
+            <input name="image_url" defaultValue={editingPrize?.image_url || ""} placeholder="https://..." className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground" />
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Enviar imagem do prêmio
+            <input name="image_file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="h-12 w-full rounded-xl border border-border bg-background px-3 py-3 text-xs font-normal normal-case tracking-normal text-muted-foreground" />
+          </label>
+          <label className="space-y-2 text-xs font-bold uppercase tracking-wider text-muted-foreground md:col-span-3">
+            Descrição
+            <input name="description" defaultValue={editingPrize?.description || ""} placeholder="Detalhe curto exibido no card de premiação" className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal normal-case tracking-normal text-foreground" />
+          </label>
           <div className="flex gap-2 md:col-span-3">
-            <button disabled={saving || !selectedCompetitionId} className="rounded-lg bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-60">
+            <button disabled={saving || !selectedCompetitionId} className="rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white disabled:opacity-60">
               {editingPrize ? "Salvar alterações" : "Criar prêmio"}
             </button>
             {editingPrize && (
               <button
                 type="button"
                 onClick={() => setEditingPrize(null)}
-                className="rounded-lg border border-border px-4 py-3 text-sm font-bold text-muted-foreground"
+                className="rounded-xl border border-border px-5 py-3 text-sm font-bold text-muted-foreground"
               >
                 Cancelar edição
               </button>

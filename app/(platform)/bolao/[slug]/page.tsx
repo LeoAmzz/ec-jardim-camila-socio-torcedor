@@ -363,16 +363,17 @@ export default function BolaoDetailPage() {
       <div className="space-y-3">
         <p className="text-xs font-black uppercase tracking-[0.2em] text-accent">{title}</p>
         {filteredPrizes.map((prize) => (
-          <div key={prize.id} className="flex gap-3 rounded-xl border border-border bg-background/60 p-3">
+          <div key={prize.id} className="overflow-hidden rounded-2xl border border-border bg-background/60">
             {prize.image_url ? (
-              <img src={prize.image_url} alt={prize.title} className="h-14 w-14 rounded-lg border border-border object-cover" />
+              <img src={prize.image_url} alt={prize.title} className="h-28 w-full object-cover" />
             ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card text-accent">
-                <Trophy size={24} />
+              <div className="flex h-24 w-full items-center justify-center bg-card text-accent">
+                <Trophy size={30} />
               </div>
             )}
-            <div>
-              <p className="text-sm font-black text-foreground">{prize.position}º lugar • {prize.title}</p>
+            <div className="p-3">
+              <p className="text-xs font-black uppercase tracking-wider text-accent">{prize.position}º lugar</p>
+              <p className="mt-1 text-sm font-black text-foreground">{prize.title}</p>
               {prize.description && <p className="mt-1 text-xs text-muted-foreground">{prize.description}</p>}
             </div>
           </div>
@@ -383,7 +384,7 @@ export default function BolaoDetailPage() {
 
   function renderPrizes() {
     return (
-      <aside className="rounded-2xl border border-border bg-card p-5">
+      <aside className="rounded-2xl border border-border bg-card p-5 xl:sticky xl:top-4">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent/15 text-accent">
             <Trophy size={18} />
@@ -494,12 +495,12 @@ export default function BolaoDetailPage() {
 
     return (
       <div className="space-y-5">
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {topRows.map((row, index) => renderTopCard(row, index))}
         </div>
 
         {remainingRows.length > 0 && (
-          <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="bg-card rounded-xl border border-border overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted text-muted-foreground bg-opacity-50 border-b border-border">
                 <tr>
@@ -671,7 +672,7 @@ export default function BolaoDetailPage() {
             </div>
           )}
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
             {matches.map((match) => {
               const prediction = predictionsByMatch[match.id];
               const draft = prediction
@@ -685,7 +686,7 @@ export default function BolaoDetailPage() {
               const awayName = match.away_team?.short_name || match.away_team?.name || "Visitante";
 
               return (
-                <div key={match.id} className="bg-card border border-border rounded-xl overflow-hidden">
+                <div key={match.id} className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
                   <div className="bg-sidebar px-4 py-2 flex items-center justify-between gap-3 border-b border-border">
                     <span className="text-xs text-muted-foreground font-semibold">
                       {formatDateTime(match.match_datetime)}
@@ -694,36 +695,44 @@ export default function BolaoDetailPage() {
                     {getMatchBadge(match)}
                   </div>
 
-                  <div className="p-4 md:p-6 pb-4">
-                    <div className="flex items-center justify-between gap-4 md:gap-8 max-w-xl mx-auto">
-                      <div className="flex flex-col items-center flex-1">
+                  <div className="p-4 pb-4">
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                      <div className="flex min-w-0 flex-col items-center">
                         <TeamLogo team={match.home_team} tone="home" />
-                        <span className="mt-2 text-center text-sm font-black uppercase tracking-wide text-foreground line-clamp-1 md:text-base">{homeName}</span>
+                        <span className="mt-2 max-w-full truncate text-center text-xs font-black uppercase tracking-wide text-foreground md:text-sm">{homeName}</span>
                       </div>
 
-                      <div className="flex flex-shrink-0 items-center gap-3 rounded-2xl border border-border bg-background p-2 shadow-inner md:gap-6">
-                        <input type="number" min={0} value={draft.home} disabled={!canEdit} onChange={(event) => updateScore(match.id, "home", event.target.value)} className="w-12 h-12 bg-card border border-border rounded-lg text-center text-2xl font-bold text-foreground disabled:opacity-60" />
+                      <div className="flex items-center gap-2 rounded-2xl border border-border bg-background p-2 shadow-inner">
+                        <input type="number" min={0} value={draft.home} disabled={!canEdit} onChange={(event) => updateScore(match.id, "home", event.target.value)} className="h-11 w-11 rounded-lg border border-border bg-card text-center text-xl font-bold text-foreground disabled:opacity-60" />
                         <span className="font-black text-muted-foreground">X</span>
-                        <input type="number" min={0} value={draft.away} disabled={!canEdit} onChange={(event) => updateScore(match.id, "away", event.target.value)} className="w-12 h-12 bg-card border border-border rounded-lg text-center text-2xl font-bold text-foreground disabled:opacity-60" />
+                        <input type="number" min={0} value={draft.away} disabled={!canEdit} onChange={(event) => updateScore(match.id, "away", event.target.value)} className="h-11 w-11 rounded-lg border border-border bg-card text-center text-xl font-bold text-foreground disabled:opacity-60" />
                       </div>
 
-                      <div className="flex flex-col items-center flex-1">
+                      <div className="flex min-w-0 flex-col items-center">
                         <TeamLogo team={match.away_team} tone="away" />
-                        <span className="mt-2 text-center text-sm font-black uppercase tracking-wide text-foreground line-clamp-1 md:text-base">{awayName}</span>
+                        <span className="mt-2 max-w-full truncate text-center text-xs font-black uppercase tracking-wide text-foreground md:text-sm">{awayName}</span>
                       </div>
                     </div>
 
                     {match.status === "finished" && (
-                      <div className="mt-4 text-center text-sm text-muted-foreground">
-                        <p>Resultado oficial: <span className="font-bold text-foreground">{match.home_score ?? "-"} x {match.away_score ?? "-"}</span></p>
+                      <div className="mt-4 rounded-xl border border-border bg-background/70 p-3 text-center text-sm text-muted-foreground">
+                        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Resultado oficial</p>
+                        <p className="mt-1 text-xl font-black text-foreground">{match.home_score ?? "-"} x {match.away_score ?? "-"}</p>
                         {prediction ? (
-                          <p className="mt-1">
-                            V/E: <span className="font-bold text-foreground">{prediction.points_winner}</span>
-                            {" • "}
-                            Exato: <span className="font-bold text-foreground">{prediction.points_exact_score}</span>
-                            {" • "}
-                            Total: <span className="font-bold text-accent">{prediction.points_total}</span>
-                          </p>
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            <div className="rounded-lg bg-card p-2">
+                              <p className="text-sm font-black text-foreground">{prediction.points_winner}</p>
+                              <p className="text-[10px] font-bold uppercase text-muted-foreground">V/E</p>
+                            </div>
+                            <div className="rounded-lg bg-card p-2">
+                              <p className="text-sm font-black text-foreground">{prediction.points_exact_score}</p>
+                              <p className="text-[10px] font-bold uppercase text-muted-foreground">Exato</p>
+                            </div>
+                            <div className="rounded-lg bg-card p-2">
+                              <p className="text-sm font-black text-accent">{prediction.points_total}</p>
+                              <p className="text-[10px] font-bold uppercase text-muted-foreground">Total</p>
+                            </div>
+                          </div>
                         ) : (
                           <p className="mt-1 font-semibold text-muted-foreground">Sem palpite</p>
                         )}
