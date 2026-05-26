@@ -58,13 +58,12 @@ function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
   const isOpen = competition.status === "open";
 
   return (
-    <div className={`relative overflow-hidden bg-card border rounded-2xl p-5 flex flex-col gap-4 ${isOpen ? "border-primary/50 shadow-[0_0_0_1px_rgba(59,130,246,0.12)]" : "border-border"}`}>
-      <div className={`pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full ${isOpen ? "bg-primary/20" : "bg-primary/10"}`} />
-      <div className="pointer-events-none absolute -bottom-12 left-8 h-24 w-24 rounded-full bg-accent/10" />
-      <div className="flex items-start justify-between gap-3">
+    <div className={`relative overflow-hidden bg-card border rounded-2xl p-5 flex flex-col gap-4 transition-all hover:border-primary/30 hover:shadow-lg ${isOpen ? "border-primary/50 shadow-[0_0_15px_rgba(59,130,246,0.15)]" : "border-border"}`}>
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-2xl ${isOpen ? "bg-primary/20" : "bg-primary/5"}`} />
+      <div className="flex items-start justify-between gap-3 relative z-10">
         <div className="relative">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-accent">{isOpen ? "Bolão aberto" : "Bolão"}</p>
-          <h2 className="mt-1 text-2xl font-black leading-tight text-foreground">{competition.name}</h2>
+          <p className="text-[10px] font-black uppercase tracking-widest text-accent">{isOpen ? "Bolão aberto" : "Bolão"}</p>
+          <h2 className="mt-1 text-2xl font-black leading-tight tracking-tight text-foreground">{competition.name}</h2>
           {competition.description && (
             <p className="mt-2 text-sm text-muted-foreground">{competition.description}</p>
           )}
@@ -74,17 +73,17 @@ function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
         </Badge>
       </div>
 
-      <div className="relative rounded-xl border border-border bg-background/60 p-3 text-sm text-muted-foreground">
+      <div className="relative z-10 rounded-xl border border-border bg-background/60 p-3 text-sm text-muted-foreground shadow-inner">
         {period && <p className="font-semibold text-foreground">{period}</p>}
         {competition.subscribers_only && (
-          <p className="mt-1 font-semibold text-accent">Exclusivo para assinantes</p>
+          <p className="mt-1 font-black text-accent uppercase tracking-wider text-[10px]">Exclusivo para assinantes</p>
         )}
         {!period && !competition.subscribers_only && <p>Competição aberta para a torcida.</p>}
       </div>
 
       <Link
         href={`/bolao/${competition.slug}`}
-        className={`relative mt-auto rounded-xl px-4 py-3 text-center text-sm font-black uppercase tracking-wide transition-colors ${isOpen ? "bg-primary text-white hover:bg-primary-light" : "border border-border text-foreground hover:border-primary/60 hover:text-accent"}`}
+        className={`relative z-10 mt-auto rounded-xl px-4 py-3 text-center text-sm font-black uppercase tracking-widest transition-all ${isOpen ? "bg-primary text-white shadow-md hover:bg-primary-light hover:shadow-lg" : "border border-border text-foreground hover:border-primary/60 hover:text-accent hover:bg-primary/5"}`}
       >
         {getButtonLabel(competition.status)}
       </Link>
