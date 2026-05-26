@@ -336,6 +336,194 @@ export default function BolaoAdminPage() {
     await loadAdminData(selectedCompetitionId);
   }
 
+  async function deleteCompetition(competition: BolaoCompetition) {
+    const confirmed = window.confirm(
+      "Tem certeza que deseja excluir esta competição? Esta ação não poderá ser desfeita.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const [matchesResult, predictionsResult, prizesResult] = await Promise.all([
+      supabase
+        .from("bolao_matches")
+        .select("id", { count: "exact", head: true })
+        .eq("competition_id", competition.id),
+      supabase
+        .from("bolao_predictions")
+        .select("id", { count: "exact", head: true })
+        .eq("competition_id", competition.id),
+      supabase
+        .from("bolao_prizes")
+        .select("id", { count: "exact", head: true })
+        .eq("competition_id", competition.id),
+    ]);
+
+    const countError = matchesResult.error || predictionsResult.error || prizesResult.error;
+
+    if (countError) {
+      setSaving(false);
+      logSupabaseError("Bolao competition dependency check failed", countError);
+      setMessage(getSupabaseErrorMessage(countError, "Não foi possível verificar dependências da competição."));
+      return;
+    }
+
+    const hasDependencies =
+      (matchesResult.count || 0) > 0 ||
+      (predictionsResult.count || 0) > 0 ||
+      (prizesResult.count || 0) > 0;
+
+    if (hasDependencies) {
+      setSaving(false);
+      setMessage("Esta competição possui jogos, palpites ou prêmios. Para preservar o histórico, use Arquivar.");
+      return;
+    }
+
+    const { error } = await supabase.from("bolao_competitions").delete().eq("id", competition.id);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao competition delete failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível excluir a competição."));
+      return;
+    }
+
+    if (editingCompetition?.id === competition.id) {
+      setEditingCompetition(null);
+    }
+
+    setMessage("Competição excluída.");
+    await loadAdminData(selectedCompetitionId === competition.id ? "" : selectedCompetitionId);
+  }
+
+  async function deleteTeam(team: BolaoTeam) {
+    const confirmed = window.confirm("Tem certeza que deseja excluir este time?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const { count, error: countError } = await supabase
+      .from("bolao_matches")
+      .select("id", { count: "exact", head: true })
+      .or(`home_team_id.eq.${team.id},away_team_id.eq.${team.id}`);
+
+    if (countError) {
+      setSaving(false);
+      logSupabaseError("Bolao team dependency check failed", countError);
+      setMessage(getSupabaseErrorMessage(countError, "Não foi possível verificar se o time possui jogos."));
+      return;
+    }
+
+    if ((count || 0) > 0) {
+      setSaving(false);
+      setMessage("Este time já está vinculado a jogos e não pode ser excluído.");
+      return;
+    }
+
+    const { error } = await supabase.from("bolao_teams").delete().eq("id", team.id);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao team delete failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível excluir o time."));
+      return;
+    }
+
+    if (editingTeam?.id === team.id) {
+      setEditingTeam(null);
+    }
+
+    setMessage("Time excluído.");
+    await loadAdminData(selectedCompetitionId);
+  }
+
+  async function deleteMatch(match: MatchWithTeams) {
+    const confirmed = window.confirm("Tem certeza que deseja excluir este jogo?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const { count, error: countError } = await supabase
+      .from("bolao_predictions")
+      .select("id", { count: "exact", head: true })
+      .eq("match_id", match.id);
+
+    if (countError) {
+      setSaving(false);
+      logSupabaseError("Bolao match dependency check failed", countError);
+      setMessage(getSupabaseErrorMessage(countError, "Não foi possível verificar palpites do jogo."));
+      return;
+    }
+
+    if ((count || 0) > 0) {
+      setSaving(false);
+      setMessage("Este jogo já possui palpites. Para preservar o histórico, altere o status para cancelado.");
+      return;
+    }
+
+    const { error } = await supabase.from("bolao_matches").delete().eq("id", match.id);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao match delete failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível excluir o jogo."));
+      return;
+    }
+
+    if (editingMatch?.id === match.id) {
+      setEditingMatch(null);
+    }
+
+    setMessage("Jogo excluído.");
+    await loadAdminData(selectedCompetitionId);
+  }
+
+  async function cancelMatch(match: MatchWithTeams) {
+    const confirmed = window.confirm("Tem certeza que deseja cancelar este jogo? Os palpites serão preservados.");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("bolao_matches")
+      .update({ status: "cancelled" })
+      .eq("id", match.id);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao match cancel failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível cancelar o jogo."));
+      return;
+    }
+
+    if (editingMatch?.id === match.id) {
+      setEditingMatch(null);
+    }
+
+    setMessage("Jogo cancelado. Palpites preservados.");
+    await loadAdminData(selectedCompetitionId);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -418,6 +606,14 @@ export default function BolaoAdminPage() {
                 {(competition.status === "finished" || competition.status === "draft") && (
                   <button type="button" disabled={saving} onClick={() => void updateCompetitionStatus(competition, "archived")} className="rounded-lg border border-border px-3 py-2 text-xs font-bold text-muted-foreground disabled:opacity-60">Arquivar</button>
                 )}
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void deleteCompetition(competition)}
+                  className="rounded-lg border border-red-500/30 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-60"
+                >
+                  Excluir
+                </button>
               </div>
             </div>
           ))}
@@ -464,6 +660,14 @@ export default function BolaoAdminPage() {
                 className="rounded-lg border border-border px-3 py-1 text-xs font-bold text-muted-foreground"
               >
                 Editar
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void deleteTeam(team)}
+                className="rounded-lg border border-red-500/30 px-3 py-1 text-xs font-bold text-red-300 disabled:opacity-60"
+              >
+                Excluir
               </button>
             </div>
           ))}
@@ -554,6 +758,24 @@ export default function BolaoAdminPage() {
                     className="rounded-lg border border-border px-3 py-1 text-xs font-bold text-muted-foreground"
                   >
                     Editar
+                  </button>
+                  {match.status !== "cancelled" && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void cancelMatch(match)}
+                      className="rounded-lg border border-border px-3 py-1 text-xs font-bold text-muted-foreground disabled:opacity-60"
+                    >
+                      Cancelar jogo
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void deleteMatch(match)}
+                    className="rounded-lg border border-red-500/30 px-3 py-1 text-xs font-bold text-red-300 disabled:opacity-60"
+                  >
+                    Excluir
                   </button>
                 </div>
               </div>
