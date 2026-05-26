@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/shared/Badge";
 import { supabase } from "@/lib/supabase/client";
@@ -40,7 +41,7 @@ function getMatchBadge(match: MatchWithTeams) {
 }
 
 export default function BolaoPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("palpitar");
   const [competition, setCompetition] = useState<BolaoCompetition | null>(null);
   const [matches, setMatches] = useState<MatchWithTeams[]>([]);
@@ -383,13 +384,20 @@ export default function BolaoPage() {
             {activeTab === "ranking_geral" && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-t-md" />}
           </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowRules((current) => !current)}
-          className="text-muted-foreground hover:text-foreground hidden md:flex items-center gap-1.5 text-xs font-semibold"
-        >
-          <Info size={14} /> Regras
-        </button>
+        <div className="hidden md:flex items-center gap-4">
+          {profile?.role === "admin" && (
+            <Link href="/bolao/admin" className="text-xs font-semibold text-accent hover:text-accent-dark">
+              Admin do Bolão
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowRules((current) => !current)}
+            className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs font-semibold"
+          >
+            <Info size={14} /> Regras
+          </button>
+        </div>
       </div>
 
       {showRules && (
