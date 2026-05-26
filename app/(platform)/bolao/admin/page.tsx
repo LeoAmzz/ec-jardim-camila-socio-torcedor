@@ -18,6 +18,39 @@ function fromDateTimeLocal(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
+function normalizeSlug(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function getCompetitionErrorMessage(error: {
+  code?: string;
+  message?: string;
+}) {
+  const message = error.message?.toLowerCase() || "";
+
+  if (error.code === "42501" || message.includes("row-level security")) {
+    return "Sem permissão para criar competição. Confirme se seu usuário está como admin.";
+  }
+
+  if (error.code === "23505") {
+    return "Já existe uma competição com esse slug.";
+  }
+
+  if (message.includes("invalid input syntax")) {
+    return "Confira as datas informadas.";
+  }
+
+  return error.message || "Não foi possível criar a competição.";
+}
+
 export default function BolaoAdminPage() {
   const { profile } = useAuth();
   const [competitions, setCompetitions] = useState<BolaoCompetition[]>([]);
@@ -104,10 +137,11 @@ export default function BolaoAdminPage() {
     const formData = new FormData(event.currentTarget);
     setSaving(true);
     setMessage(null);
+    const slug = normalizeSlug(String(formData.get("slug") || ""));
 
     const { error } = await supabase.from("bolao_competitions").insert({
       name: String(formData.get("name") || "").trim(),
-      slug: String(formData.get("slug") || "").trim(),
+      slug,
       description: String(formData.get("description") || "").trim() || null,
       status: String(formData.get("status") || "draft"),
       starts_at: fromDateTimeLocal(String(formData.get("starts_at") || "")),
@@ -120,7 +154,13 @@ export default function BolaoAdminPage() {
     setSaving(false);
 
     if (error) {
-      setMessage("Não foi possível criar a competição.");
+      console.error("Bolao competition creation failed", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      setMessage(getCompetitionErrorMessage(error));
       return;
     }
 
