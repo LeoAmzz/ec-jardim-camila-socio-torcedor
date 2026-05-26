@@ -249,7 +249,7 @@ export default function BolaoDetailPage() {
   const isDraftForUser = competition?.status === "draft" && profile?.role !== "admin";
 
   return (
-    <div className="w-full max-w-[1280px] 2xl:max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-12">
+    <div className="w-full space-y-6 pb-12">
       <BolaoHeader competition={competition} onShowRules={() => setShowRules(true)} />
 
       {isDraftForUser && (

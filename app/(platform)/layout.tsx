@@ -3,6 +3,7 @@ import { Header } from "@/components/layout/Header";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { PlatformContentWrapper } from "./PlatformContentWrapper";
 
 export default function PlatformLayout({
   children,
@@ -17,9 +18,9 @@ export default function PlatformLayout({
           <div className="flex-1 flex flex-col md:ml-[220px] transition-all">
             <Header />
             <main className="flex-1 overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6 content-area">
-              <div className="max-w-3xl mx-auto w-full">
+              <PlatformContentWrapper>
                 {children}
-              </div>
+              </PlatformContentWrapper>
             </main>
           </div>
           <RightPanel />
