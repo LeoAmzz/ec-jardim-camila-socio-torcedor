@@ -14,20 +14,6 @@ type MatchWithTeams = BolaoMatch & {
 const competitionStatuses = ["draft", "open", "closed", "finished", "archived"] as const;
 const matchStatuses = ["scheduled", "open", "locked", "finished", "cancelled"] as const;
 
-function toDateTimeLocal(value: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toISOString().slice(0, 16);
-}
-
 function fromDateTimeLocal(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
