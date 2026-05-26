@@ -249,7 +249,7 @@ export default function BolaoDetailPage() {
   const isDraftForUser = competition?.status === "draft" && profile?.role !== "admin";
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="w-full max-w-[1280px] 2xl:max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-12">
       <BolaoHeader competition={competition} onShowRules={() => setShowRules(true)} />
 
       {isDraftForUser && (
@@ -283,7 +283,7 @@ export default function BolaoDetailPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 md:gap-6">
             {matches.map((match) => {
               const prediction = predictionsByMatch[match.id];
               const draft = prediction
@@ -310,8 +310,8 @@ export default function BolaoDetailPage() {
       )}
 
       {(activeTab === "ranking_geral" || activeTab === "ranking_assinantes") && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
-          <div className="space-y-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px] gap-6">
+          <div className="space-y-4 min-w-0">
             {activeTab === "ranking_assinantes" && profile?.plan_type === "torcedor" && (
               <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
                 Assine um plano para concorrer aos prêmios exclusivos.
@@ -322,7 +322,7 @@ export default function BolaoDetailPage() {
               : renderRankingContent(subscribersRanking, matches.some(m => m.status === "finished") ? "Ainda não há participantes ranqueados." : "O ranking será atualizado após os primeiros resultados oficiais.")}
           </div>
           <div>
-            <PrizeSidebar prizes={prizes} />
+            <PrizeSidebar prizes={prizes} rankingType={activeTab === "ranking_geral" ? "general" : "subscribers"} />
           </div>
         </div>
       )}

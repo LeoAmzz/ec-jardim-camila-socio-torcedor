@@ -3,10 +3,15 @@ import type { BolaoPrize } from "@/lib/types/bolao";
 
 interface PrizeSidebarProps {
   prizes: BolaoPrize[];
+  rankingType: "general" | "subscribers";
 }
 
 function PrizeList({ prizes, title }: { prizes: BolaoPrize[]; title: string }) {
-  if (prizes.length === 0) return null;
+  if (prizes.length === 0) return (
+    <p className="rounded-xl border border-border bg-background/60 p-4 text-sm font-medium text-muted-foreground">
+      Premiação será divulgada em breve.
+    </p>
+  );
 
   return (
     <div className="space-y-4">
@@ -31,7 +36,10 @@ function PrizeList({ prizes, title }: { prizes: BolaoPrize[]; title: string }) {
   );
 }
 
-export function PrizeSidebar({ prizes }: PrizeSidebarProps) {
+export function PrizeSidebar({ prizes, rankingType }: PrizeSidebarProps) {
+  const filteredPrizes = prizes.filter(p => p.ranking_type === rankingType);
+  const title = rankingType === "general" ? "Ranking Geral" : "Ranking Assinantes";
+
   return (
     <aside className="rounded-2xl border border-border bg-card p-5 shadow-lg xl:sticky xl:top-6">
       <div className="mb-6 flex items-center gap-3">
@@ -44,16 +52,9 @@ export function PrizeSidebar({ prizes }: PrizeSidebarProps) {
         </div>
       </div>
 
-      {prizes.length === 0 ? (
-        <p className="rounded-xl border border-border bg-background/60 p-4 text-sm font-medium text-muted-foreground">
-          Premiação será divulgada em breve.
-        </p>
-      ) : (
-        <div className="space-y-8">
-          <PrizeList prizes={prizes.filter(p => p.ranking_type === "general")} title="Ranking Geral" />
-          <PrizeList prizes={prizes.filter(p => p.ranking_type === "subscribers")} title="Ranking Assinantes" />
-        </div>
-      )}
+      <div className="space-y-8">
+        <PrizeList prizes={filteredPrizes} title={title} />
+      </div>
     </aside>
   );
 }

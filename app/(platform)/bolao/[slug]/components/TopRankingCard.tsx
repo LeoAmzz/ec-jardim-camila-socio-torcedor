@@ -67,7 +67,7 @@ export function TopRankingCard({ row, index }: TopRankingCardProps) {
         </span>
         <RankingAvatar row={row} featured />
         <div className="flex-1 min-w-0">
-          <p className="truncate text-lg font-black text-foreground">{row.full_name || row.username || "Torcedor"}</p>
+          <p className="line-clamp-2 break-words leading-tight text-lg font-black text-foreground">{row.full_name || row.username || "Torcedor"}</p>
           {row.username && <p className="truncate text-xs text-muted-foreground">@{row.username}</p>}
         </div>
         <div className="hidden sm:block">
