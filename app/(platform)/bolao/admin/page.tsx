@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/shared/Badge";
 import { supabase } from "@/lib/supabase/client";
-import type { BolaoCompetition, BolaoMatch, BolaoTeam } from "@/lib/types/bolao";
+import type { BolaoCompetition, BolaoMatch, BolaoPrize, BolaoTeam } from "@/lib/types/bolao";
 
 type MatchWithTeams = BolaoMatch & {
   home_team: Pick<BolaoTeam, "name" | "short_name"> | null;
@@ -13,6 +13,7 @@ type MatchWithTeams = BolaoMatch & {
 
 const competitionStatuses = ["draft", "open", "closed", "finished", "archived"] as const;
 const matchStatuses = ["scheduled", "open", "locked", "finished", "cancelled"] as const;
+const prizeRankingTypes = ["general", "subscribers"] as const;
 const teamLogoMimeTypes = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
 const maxTeamLogoSize = 2 * 1024 * 1024;
 
@@ -119,15 +120,21 @@ function getTeamLogoExtension(file: File) {
   return file.type.split("/")[1] || "png";
 }
 
+function getPrizeRankingLabel(rankingType: BolaoPrize["ranking_type"]) {
+  return rankingType === "subscribers" ? "Ranking Assinantes" : "Ranking Geral";
+}
+
 export default function BolaoAdminPage() {
   const { profile } = useAuth();
   const [competitions, setCompetitions] = useState<BolaoCompetition[]>([]);
   const [teams, setTeams] = useState<BolaoTeam[]>([]);
   const [matches, setMatches] = useState<MatchWithTeams[]>([]);
+  const [prizes, setPrizes] = useState<BolaoPrize[]>([]);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState("");
   const [editingCompetition, setEditingCompetition] = useState<BolaoCompetition | null>(null);
   const [editingTeam, setEditingTeam] = useState<BolaoTeam | null>(null);
   const [editingMatch, setEditingMatch] = useState<MatchWithTeams | null>(null);
+  const [editingPrize, setEditingPrize] = useState<BolaoPrize | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -163,25 +170,42 @@ export default function BolaoAdminPage() {
     setSelectedCompetitionId(nextCompetitionId);
 
     if (nextCompetitionId) {
-      const { data, error } = await supabase
-        .from("bolao_matches")
-        .select(`
-          *,
-          home_team:bolao_teams!bolao_matches_home_team_id_fkey(name,short_name),
-          away_team:bolao_teams!bolao_matches_away_team_id_fkey(name,short_name)
-        `)
-        .eq("competition_id", nextCompetitionId)
-        .order("match_datetime", { ascending: true })
-        .returns<MatchWithTeams[]>();
+      const [matchesResult, prizesResult] = await Promise.all([
+        supabase
+          .from("bolao_matches")
+          .select(`
+            *,
+            home_team:bolao_teams!bolao_matches_home_team_id_fkey(name,short_name),
+            away_team:bolao_teams!bolao_matches_away_team_id_fkey(name,short_name)
+          `)
+          .eq("competition_id", nextCompetitionId)
+          .order("match_datetime", { ascending: true })
+          .returns<MatchWithTeams[]>(),
+        supabase
+          .from("bolao_prizes")
+          .select("*")
+          .eq("competition_id", nextCompetitionId)
+          .order("ranking_type", { ascending: true })
+          .order("position", { ascending: true })
+          .returns<BolaoPrize[]>(),
+      ]);
 
-      if (error) {
+      if (matchesResult.error) {
         setMatches([]);
         setMessage("Não foi possível carregar os jogos.");
       } else {
-        setMatches(data || []);
+        setMatches(matchesResult.data || []);
+      }
+
+      if (prizesResult.error) {
+        setPrizes([]);
+        setMessage("Não foi possível carregar os prêmios.");
+      } else {
+        setPrizes(prizesResult.data || []);
       }
     } else {
       setMatches([]);
+      setPrizes([]);
     }
 
     setLoading(false);
@@ -600,6 +624,77 @@ export default function BolaoAdminPage() {
     await loadAdminData(selectedCompetitionId);
   }
 
+  async function savePrize(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const competitionId = String(formData.get("competition_id") || selectedCompetitionId);
+    const position = Number(formData.get("position") || 0);
+    const title = String(formData.get("title") || "").trim();
+
+    if (!competitionId || !Number.isInteger(position) || position <= 0 || !title) {
+      setMessage("Informe a posição e o título do prêmio.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const payload = {
+      competition_id: competitionId,
+      ranking_type: String(formData.get("ranking_type") || "general"),
+      position,
+      title,
+      description: String(formData.get("description") || "").trim() || null,
+      image_url: String(formData.get("image_url") || "").trim() || null,
+    };
+
+    const { error } = editingPrize
+      ? await supabase.from("bolao_prizes").update(payload).eq("id", editingPrize.id)
+      : await supabase.from("bolao_prizes").insert(payload);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao prize save failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível salvar o prêmio."));
+      return;
+    }
+
+    event.currentTarget.reset();
+    setEditingPrize(null);
+    setSelectedCompetitionId(competitionId);
+    setMessage(editingPrize ? "Prêmio atualizado com sucesso." : "Prêmio criado com sucesso.");
+    await loadAdminData(competitionId);
+  }
+
+  async function deletePrize(prize: BolaoPrize) {
+    const confirmed = window.confirm("Tem certeza que deseja excluir este prêmio?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const { error } = await supabase.from("bolao_prizes").delete().eq("id", prize.id);
+
+    setSaving(false);
+
+    if (error) {
+      logSupabaseError("Bolao prize delete failed", error);
+      setMessage(getSupabaseErrorMessage(error, "Não foi possível excluir o prêmio."));
+      return;
+    }
+
+    if (editingPrize?.id === prize.id) {
+      setEditingPrize(null);
+    }
+
+    setMessage("Prêmio excluído com sucesso.");
+    await loadAdminData(selectedCompetitionId);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -782,6 +877,7 @@ export default function BolaoAdminPage() {
             onChange={(event) => {
               setSelectedCompetitionId(event.target.value);
               setEditingMatch(null);
+              setEditingPrize(null);
               void loadAdminData(event.target.value);
             }}
             className="mt-2 w-full rounded-lg border border-border bg-background p-3 text-sm text-foreground"
@@ -886,6 +982,91 @@ export default function BolaoAdminPage() {
               </div>
             </form>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        <h2 className="text-lg font-black text-foreground">Prêmios</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Cadastre os prêmios exibidos no ranking do bolão.</p>
+
+        <form
+          key={editingPrize?.id || "new-prize"}
+          onSubmit={savePrize}
+          className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"
+        >
+          <select name="competition_id" defaultValue={editingPrize?.competition_id || selectedCompetitionId} required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground">
+            <option value="">Competição</option>
+            {competitions.map((competition) => (
+              <option key={competition.id} value={competition.id}>{competition.name}</option>
+            ))}
+          </select>
+          <select name="ranking_type" defaultValue={editingPrize?.ranking_type || "general"} required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground">
+            {prizeRankingTypes.map((rankingType) => (
+              <option key={rankingType} value={rankingType}>{getPrizeRankingLabel(rankingType)}</option>
+            ))}
+          </select>
+          <input name="position" type="number" min={1} defaultValue={editingPrize?.position || 1} placeholder="Posição" required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          <input name="title" defaultValue={editingPrize?.title || ""} placeholder="Título do prêmio" required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          <input name="image_url" defaultValue={editingPrize?.image_url || ""} placeholder="URL da imagem" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          <input name="description" defaultValue={editingPrize?.description || ""} placeholder="Descrição" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          <div className="flex gap-2 md:col-span-3">
+            <button disabled={saving || !selectedCompetitionId} className="rounded-lg bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-60">
+              {editingPrize ? "Salvar alterações" : "Criar prêmio"}
+            </button>
+            {editingPrize && (
+              <button
+                type="button"
+                onClick={() => setEditingPrize(null)}
+                className="rounded-lg border border-border px-4 py-3 text-sm font-bold text-muted-foreground"
+              >
+                Cancelar edição
+              </button>
+            )}
+          </div>
+        </form>
+
+        <div className="mt-5 space-y-3">
+          {prizes.length === 0 ? (
+            <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+              Nenhum prêmio cadastrado para a competição selecionada.
+            </div>
+          ) : (
+            prizes.map((prize) => (
+              <div key={prize.id} className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  {prize.image_url ? (
+                    <img src={prize.image_url} alt={prize.title} className="h-14 w-14 rounded-lg border border-border object-cover" />
+                  ) : (
+                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card text-sm font-black text-muted-foreground">
+                      {prize.position}º
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-accent">{getPrizeRankingLabel(prize.ranking_type)}</p>
+                    <p className="font-bold text-foreground">{prize.position}º • {prize.title}</p>
+                    {prize.description && <p className="text-sm text-muted-foreground">{prize.description}</p>}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPrize(prize)}
+                    className="rounded-lg border border-border px-3 py-2 text-xs font-bold text-muted-foreground"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void deletePrize(prize)}
+                    className="rounded-lg border border-red-500/30 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-60"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
     </div>
