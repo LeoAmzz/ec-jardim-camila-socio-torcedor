@@ -57,10 +57,13 @@ function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
   const period = formatPeriod(competition.starts_at, competition.ends_at);
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4">
+    <div className="relative overflow-hidden bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
+      <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/10" />
+      <div className="pointer-events-none absolute -bottom-12 left-8 h-24 w-24 rounded-full bg-accent/10" />
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-black text-foreground">{competition.name}</h2>
+        <div className="relative">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-accent">Bolão</p>
+          <h2 className="mt-1 text-2xl font-black leading-tight text-foreground">{competition.name}</h2>
           {competition.description && (
             <p className="mt-2 text-sm text-muted-foreground">{competition.description}</p>
           )}
@@ -70,16 +73,17 @@ function CompetitionCard({ competition }: { competition: BolaoCompetition }) {
         </Badge>
       </div>
 
-      <div className="space-y-1 text-sm text-muted-foreground">
-        {period && <p>{period}</p>}
+      <div className="relative rounded-xl border border-border bg-background/60 p-3 text-sm text-muted-foreground">
+        {period && <p className="font-semibold text-foreground">{period}</p>}
         {competition.subscribers_only && (
-          <p className="font-semibold text-accent">Exclusivo para assinantes</p>
+          <p className="mt-1 font-semibold text-accent">Exclusivo para assinantes</p>
         )}
+        {!period && !competition.subscribers_only && <p>Competição aberta para a torcida.</p>}
       </div>
 
       <Link
         href={`/bolao/${competition.slug}`}
-        className="mt-auto rounded-lg bg-primary px-4 py-3 text-center text-sm font-bold text-white transition-colors hover:bg-primary-light"
+        className="relative mt-auto rounded-xl bg-primary px-4 py-3 text-center text-sm font-black uppercase tracking-wide text-white transition-colors hover:bg-primary-light"
       >
         {getButtonLabel(competition.status)}
       </Link>

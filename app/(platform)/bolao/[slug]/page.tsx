@@ -41,6 +41,29 @@ function getMatchBadge(match: MatchWithTeams) {
   return <Badge variant="yellow">ABERTO</Badge>;
 }
 
+function TeamLogo({ team, tone }: { team: MatchWithTeams["home_team"]; tone: "home" | "away" }) {
+  const teamName = team?.short_name || team?.name || "Time";
+
+  if (team?.logo_url) {
+    return (
+      <img
+        src={team.logo_url}
+        alt={`Logo de ${teamName}`}
+        className="h-14 w-14 rounded-full border-2 border-background bg-card object-contain p-1 shadow-md md:h-16 md:w-16"
+      />
+    );
+  }
+
+  return (
+    <div className={cn(
+      "flex h-14 w-14 items-center justify-center rounded-full border-2 border-background shadow-md md:h-16 md:w-16",
+      tone === "home" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+    )}>
+      <ShieldCheck size={28} />
+    </div>
+  );
+}
+
 export default function BolaoDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -485,25 +508,21 @@ export default function BolaoDetailPage() {
                   </div>
 
                   <div className="p-4 md:p-6 pb-4">
-                    <div className="flex items-center justify-between gap-4 md:gap-8 max-w-lg mx-auto">
+                    <div className="flex items-center justify-between gap-4 md:gap-8 max-w-xl mx-auto">
                       <div className="flex flex-col items-center flex-1">
-                        <div className="w-12 h-12 md:w-16 md:h-16 bg-primary rounded-full flex items-center justify-center mb-2 border-2 border-background shadow-md">
-                          <ShieldCheck size={28} className="text-primary-foreground" />
-                        </div>
-                        <span className="font-bold text-sm md:text-base text-center line-clamp-1">{homeName}</span>
+                        <TeamLogo team={match.home_team} tone="home" />
+                        <span className="mt-2 text-center text-sm font-black uppercase tracking-wide text-foreground line-clamp-1 md:text-base">{homeName}</span>
                       </div>
 
-                      <div className="flex items-center gap-3 md:gap-6 bg-background p-2 rounded-xl border border-border flex-shrink-0">
+                      <div className="flex flex-shrink-0 items-center gap-3 rounded-2xl border border-border bg-background p-2 shadow-inner md:gap-6">
                         <input type="number" min={0} value={draft.home} disabled={!canEdit} onChange={(event) => updateScore(match.id, "home", event.target.value)} className="w-12 h-12 bg-card border border-border rounded-lg text-center text-2xl font-bold text-foreground disabled:opacity-60" />
                         <span className="font-black text-muted-foreground">X</span>
                         <input type="number" min={0} value={draft.away} disabled={!canEdit} onChange={(event) => updateScore(match.id, "away", event.target.value)} className="w-12 h-12 bg-card border border-border rounded-lg text-center text-2xl font-bold text-foreground disabled:opacity-60" />
                       </div>
 
                       <div className="flex flex-col items-center flex-1">
-                        <div className="w-12 h-12 md:w-16 md:h-16 bg-muted rounded-full flex items-center justify-center mb-2 border-2 border-background shadow-md">
-                          <ShieldCheck size={28} className="text-muted-foreground" />
-                        </div>
-                        <span className="font-bold text-sm md:text-base text-center line-clamp-1">{awayName}</span>
+                        <TeamLogo team={match.away_team} tone="away" />
+                        <span className="mt-2 text-center text-sm font-black uppercase tracking-wide text-foreground line-clamp-1 md:text-base">{awayName}</span>
                       </div>
                     </div>
 

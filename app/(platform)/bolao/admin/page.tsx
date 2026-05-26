@@ -13,6 +13,8 @@ type MatchWithTeams = BolaoMatch & {
 
 const competitionStatuses = ["draft", "open", "closed", "finished", "archived"] as const;
 const matchStatuses = ["scheduled", "open", "locked", "finished", "cancelled"] as const;
+const teamLogoMimeTypes = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+const maxTeamLogoSize = 2 * 1024 * 1024;
 
 function fromDateTimeLocal(value: string) {
   return value ? new Date(value).toISOString() : null;
@@ -89,6 +91,32 @@ function getSupabaseErrorMessage(
   fallback: string,
 ) {
   return error.message || fallback;
+}
+
+function getTeamLogoValidationMessage(file: File) {
+  if (!teamLogoMimeTypes.includes(file.type)) {
+    return "Tipo de arquivo inválido.";
+  }
+
+  if (file.size > maxTeamLogoSize) {
+    return "Logo muito pesado. Envie uma imagem de até 2MB.";
+  }
+
+  return null;
+}
+
+function getTeamLogoExtension(file: File) {
+  const extensionFromName = file.name.split(".").pop()?.toLowerCase();
+
+  if (extensionFromName && ["png", "jpg", "jpeg", "webp", "svg"].includes(extensionFromName)) {
+    return extensionFromName === "jpg" ? "jpeg" : extensionFromName;
+  }
+
+  if (file.type === "image/svg+xml") {
+    return "svg";
+  }
+
+  return file.type.split("/")[1] || "png";
 }
 
 export default function BolaoAdminPage() {
@@ -237,27 +265,75 @@ export default function BolaoAdminPage() {
     const formData = new FormData(event.currentTarget);
     setSaving(true);
     setMessage(null);
+    const logoFileEntry = formData.get("logo_file");
+    const logoFile = logoFileEntry instanceof File && logoFileEntry.size > 0 ? logoFileEntry : null;
+
+    if (logoFile) {
+      const validationMessage = getTeamLogoValidationMessage(logoFile);
+
+      if (validationMessage) {
+        setSaving(false);
+        setMessage(validationMessage);
+        return;
+      }
+    }
+
     const payload = {
       name: String(formData.get("name") || "").trim(),
       short_name: String(formData.get("short_name") || "").trim() || null,
       logo_url: String(formData.get("logo_url") || "").trim() || null,
     };
 
-    const { error } = editingTeam
-      ? await supabase.from("bolao_teams").update(payload).eq("id", editingTeam.id)
-      : await supabase.from("bolao_teams").insert(payload);
+    const saveResult = editingTeam
+      ? await supabase.from("bolao_teams").update(payload).eq("id", editingTeam.id).select("*").single<BolaoTeam>()
+      : await supabase.from("bolao_teams").insert(payload).select("*").single<BolaoTeam>();
 
-    setSaving(false);
-
-    if (error) {
-      logSupabaseError("Bolao team save failed", error);
-      setMessage(getSupabaseErrorMessage(error, "Não foi possível salvar o time."));
+    if (saveResult.error || !saveResult.data) {
+      setSaving(false);
+      logSupabaseError("Bolao team save failed", saveResult.error || { message: "Time não retornado pelo Supabase." });
+      setMessage(getSupabaseErrorMessage(saveResult.error || {}, "Não foi possível salvar o time."));
       return;
     }
 
+    let logoMessage = "";
+
+    if (logoFile) {
+      const extension = getTeamLogoExtension(logoFile);
+      const storagePath = `${saveResult.data.id}/logo.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("team-logos")
+        .upload(storagePath, logoFile, {
+          contentType: logoFile.type,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        setSaving(false);
+        logSupabaseError("Bolao team logo upload failed", uploadError);
+        setMessage("Não foi possível enviar o logo.");
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("team-logos").getPublicUrl(storagePath);
+      const { error: logoUpdateError } = await supabase
+        .from("bolao_teams")
+        .update({ logo_url: publicUrlData.publicUrl })
+        .eq("id", saveResult.data.id);
+
+      if (logoUpdateError) {
+        setSaving(false);
+        logSupabaseError("Bolao team logo url update failed", logoUpdateError);
+        setMessage(getSupabaseErrorMessage(logoUpdateError, "Logo enviado, mas não foi possível salvar a URL no time."));
+        return;
+      }
+
+      logoMessage = " Logo enviado com sucesso.";
+    }
+
+    setSaving(false);
     event.currentTarget.reset();
     setEditingTeam(null);
-    setMessage(editingTeam ? "Time atualizado." : "Time criado.");
+    setMessage(`${editingTeam ? "Time atualizado." : "Time criado."}${logoMessage}`);
     await loadAdminData();
   }
 
@@ -628,9 +704,22 @@ export default function BolaoAdminPage() {
           onSubmit={saveTeam}
           className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3"
         >
+          {editingTeam?.logo_url && (
+            <div className="md:col-span-4 flex items-center gap-3 rounded-lg border border-border bg-background p-3">
+              <img src={editingTeam.logo_url} alt={`Logo de ${editingTeam.name}`} className="h-12 w-12 rounded-full border border-border bg-card object-contain p-1" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Logo atual</p>
+                <p className="text-xs text-muted-foreground">Envie um novo arquivo para substituir.</p>
+              </div>
+            </div>
+          )}
           <input name="name" defaultValue={editingTeam?.name || ""} placeholder="Nome" required className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
           <input name="short_name" defaultValue={editingTeam?.short_name || ""} placeholder="Nome curto" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
           <input name="logo_url" defaultValue={editingTeam?.logo_url || ""} placeholder="URL do logo" className="rounded-lg border border-border bg-background p-3 text-sm text-foreground" />
+          <label className="rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+            <span className="block text-xs font-bold uppercase tracking-wider">Enviar logo</span>
+            <input name="logo_file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="mt-2 w-full text-xs text-muted-foreground" />
+          </label>
           <div className="flex gap-2">
             <button disabled={saving} className="flex-1 rounded-lg bg-primary p-3 text-sm font-bold text-white disabled:opacity-60">
               {editingTeam ? "Salvar alterações" : "Criar time"}
@@ -650,9 +739,18 @@ export default function BolaoAdminPage() {
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
           {teams.map((team) => (
             <div key={team.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
-              <div>
-                <p className="text-sm font-bold text-foreground">{team.name}</p>
-                <p className="text-xs text-muted-foreground">{team.short_name || "Sem nome curto"}</p>
+              <div className="flex min-w-0 items-center gap-3">
+                {team.logo_url ? (
+                  <img src={team.logo_url} alt={`Logo de ${team.name}`} className="h-10 w-10 rounded-full border border-border bg-card object-contain p-1" />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-xs font-black text-muted-foreground">
+                    {(team.short_name || team.name).slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-foreground">{team.name}</p>
+                  <p className="text-xs text-muted-foreground">{team.short_name || "Sem nome curto"}</p>
+                </div>
               </div>
               <button
                 type="button"
